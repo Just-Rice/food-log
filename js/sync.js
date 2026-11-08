@@ -579,7 +579,8 @@
     else if (s.user) line = 'Signed in as ' + who + '.' + (s.lastSync ? ' Last synced at ' + when(s.lastSync) + '.' : '');
     return '<h2>Sync across devices</h2>' +
       '<p class="hint">Optional. Sign in with Google to keep the same log, saved meals, recipes and supplements, ' +
-      'what Food Log has learnt from your corrections, your profile (age, sex, height, weight, activity), ' +
+      'what Food Log has learnt from your corrections, your profile (age, sex, height, weight, activity, and ' +
+      'whether you are pregnant or breastfeeding), ' +
       'dietary and display settings on your phone and computer. They are then also stored in ' +
       'Food Log’s Firebase project on Google Cloud, readable only by your signed-in account. Your Gemini ' +
       'key never leaves this device. The copy here stays the main one, and signing out leaves it as it ' +

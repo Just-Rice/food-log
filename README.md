@@ -140,7 +140,9 @@ range, and the day's summary says how many of its calories are still unmeasured 
 
 **Vitamins and minerals** — the day's 13 vitamins and 10 minerals as a percentage of your
 own RDA or AI, from the NASEM DRI tables for your age and sex (or the US label Daily Values
-until you set a profile). Intakes above a tolerable upper limit are flagged — except where
+until you set a profile). Women aged 14 to 50 who say on their Food is Medicine profile that
+they are pregnant or breastfeeding get the NASEM values for that stage instead; Food Log then
+shows no energy figure, and leaves liver out of its suggestions in pregnancy. Intakes above a tolerable upper limit are flagged — except where
 the limit applies only to supplements and fortified foods, since food alone has not been
 shown to cause harm at those intakes. Typed-in foods and unmatched photo items carry energy
 only; the panel says how much of the day that leaves uncounted rather than treating it as zero.

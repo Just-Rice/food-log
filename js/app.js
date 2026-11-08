@@ -151,6 +151,11 @@
     week_line: 'The dashed line is your estimated daily need of {n} kcal.',
     nutrients_title: 'Vitamins and minerals',
     nutrients_lede_personal: 'The day against your own reference intakes (RDA or AI for your age and sex).',
+    nutrients_lede_pregnant: 'The day against your own reference intakes: the RDA or AI for pregnancy at your age.',
+    nutrients_lede_breastfeeding: 'The day against your own reference intakes: the RDA or AI for breastfeeding at your age.',
+    log_stage: 'No daily energy figure is shown while you are pregnant or breastfeeding: needs change week by week. Your midwife or doctor can advise.',
+    stage_pregnant: 'pregnant', stage_breastfeeding: 'breastfeeding',
+    gaps_pregnant: 'Liver is left out of these suggestions during pregnancy because of its vitamin A.',
     nutrients_lede_generic: 'The day against the general Daily Values printed on US food labels. Set up a profile for your own.',
     nutrients_partial_one: '1 entry ({kcal} kcal) has no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so its vitamins and minerals are not counted here.',
     nutrients_partial_one_nokcal: '1 entry has no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so its vitamins and minerals are not counted here.',
@@ -485,9 +490,12 @@
   // under 18 there is no calorie number at all.
   function energyTarget() {
     var p = Profile.get();
-    if (!p || !DRI.energyApplies(p.age)) return null;
+    if (!p || !DRI.energyApplies(p.age) || stageOf(p)) return null;
     return Profile.energy().tdee;
   }
+
+  /** 'pregnant', 'breastfeeding' or null (set on Food is Medicine's profile). */
+  function stageOf(p) { return DRI.stageOf ? DRI.stageOf(p || Profile.get()) : null; }
 
   // ======================================================================
   // State
@@ -1202,6 +1210,8 @@
         '<p class="hint">' + esc(t('kcal_of_target', { n: Math.round(totals.kcal), target: target })) +
         ' ' + esc(left >= 0 ? t('kcal_left', { n: Math.round(left) }) : t('kcal_over', { n: Math.round(-left) })) +
         ' <a href="' + FIM + '#/you">' + esc(t('how_estimated')) + '</a></p></div>';
+    } else if (prof && stageOf(prof)) {
+      energy = '<p class="hint">' + esc(t('log_stage')) + '</p>';
     } else if (prof && !DRI.energyApplies(prof.age)) {
       energy = '<p class="hint">' + esc(t('log_under18')) +
         ' <a href="' + FIM + '#/weight">' + esc(t('growing_title')) + '</a></p>';
@@ -1259,7 +1269,7 @@
         '<table class="dri-table"><tbody>' + rows(keys) + '</tbody></table></div>';
     };
     return '<h2 class="section">' + esc(title || t('nutrients_title')) + '</h2>' +
-      '<p class="hint">' + esc(ref.personal ? t('nutrients_lede_personal') : t('nutrients_lede_generic')) +
+      '<p class="hint">' + esc(ref.personal ? t(stageOf(prof) ? 'nutrients_lede_' + stageOf(prof) : 'nutrients_lede_personal') : t('nutrients_lede_generic')) +
       (ref.personal ? '' : ' <a href="' + FIM + '#/you">' + esc(t('profile_title')) + ' &rarr;</a>') +
       '</p>' +
       (totals.partialCount
@@ -2853,7 +2863,8 @@
     var body;
     if (!a.enough) body = '<p class="hint">' + esc(t('gaps_few')) + '</p>';
     else {
-      var excluded = function (f) { return !!Prefs.excludedReason(f); };
+      var pregnant = stageOf(prof) === 'pregnant';
+      var excluded = function (f) { return !!Prefs.excludedReason(f) || (pregnant && f.group === 'offal'); };
       body = (a.low.length ? '' : '<p>' + esc(t('gaps_none')) + '</p>') +
         a.low.map(function (g, i) {
           var tips = Gaps.suggest(g.key, FOODS, g.target, excluded, 4);
@@ -2875,6 +2886,7 @@
         }).join('') +
         (a.partialShare > 0.1 ? '<p class="hint">' + esc(showKcal() ? t('gaps_partial', { pct: Math.round(a.partialShare * 100) })
           : t('gaps_partial_nokcal')) + '</p>' : '') +
+        (pregnant && a.low.length ? '<p class="hint">' + esc(t('gaps_pregnant')) + '</p>' : '') +
         (ref.personal ? '' : '<p class="hint">' + esc(t('gaps_generic')) + ' <a href="' + FIM + '#/you">' +
           esc(t('profile_title')) + ' &rarr;</a></p>');
     }
@@ -2929,7 +2941,7 @@
 
       '<div class="card pad report-section"><h2>' + esc(t('report_summary')) + '</h2>' +
       (prof ? '<p>' + esc(t('report_profile')) + ': ' + esc(prof.age + ' · ' + prof.sex + ' · ' + fmt(prof.heightCm) + ' cm · ' +
-        fmt(prof.weightKg) + ' kg') + '</p>' : '') +
+        fmt(prof.weightKg) + ' kg' + (stageOf(prof) ? ' · ' + t('stage_' + stageOf(prof)) : '')) + '</p>' : '') +
       '<p>' + esc(t('report_diet')) + ': ' + esc(dietSummary() || t('none')) + '</p>' +
       (window.Gaps && logged.length ? '<p>' + esc(t('report_plants')) + ': ' + Gaps.plants(days.reduce(function (all, d) {
         return all.concat(Tracker.day(d.date));
