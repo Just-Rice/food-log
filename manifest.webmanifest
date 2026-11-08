@@ -1,0 +1,18 @@
+{
+  "id": "./",
+  "name": "Food Log",
+  "short_name": "Food Log",
+  "description": "A food diary built on Food is Medicine's USDA data: log meals by search or photo, and see the day against your own vitamin and mineral reference intakes.",
+  "lang": "en",
+  "start_url": "./#/today",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#faf8f3",
+  "theme_color": "#2f6b3f",
+  "categories": ["health", "food", "lifestyle"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

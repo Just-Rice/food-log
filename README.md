@@ -3,16 +3,32 @@
 A food diary built on [Food is Medicine](https://just-rice.github.io/food-is-medicine/)'s
 USDA food library. Log meals by search or by photo, measure portions to turn guesses into
 real amounts, and see each day against your own vitamin and mineral reference intakes.
+Scan packaged foods, save meals and recipes, describe a meal in words, install it as an app,
+and print a report for a doctor or dietitian.
 
 **Live:** https://just-rice.github.io/food-log/
 
 ## What it does
 
-**Log by search** — 1,067 foods, searchable by every name Food is Medicine knows (*rajma*,
+**Log by search** — 1,071 foods, searchable by every name Food is Medicine knows (*rajma*,
 *bhindi*, *chawal*, *anda*). Cooked and ready-to-eat foods come first, because someone
 typing "rice" into a food log has just eaten some, not a bag of dry grain. Pick a USDA
 household portion ("1 piece", "1 cup") or type grams, and re-add recent foods in one tap.
 Packaged foods can be typed in from their label.
+
+**Scan a barcode** — the camera reads EAN-13, EAN-8 and UPC codes (the browser's own
+`BarcodeDetector` where it has one, the `barcode-detector` library on iPhone), or type the
+number. Products come from [Open Food Facts](https://world.openfoodfacts.org): energy, macros,
+sodium, the serving size, and the product's allergen and vegetarian/vegan tags, which are set
+against your dietary settings — a clash is a strong warning before adding. Open Food Facts'
+allergen lists can be incomplete (Nutella's lists nuts but not milk), so the panel says the
+label on the packet is what to trust. Products are cached on the device and show up in recent
+foods; an unknown code falls back to typing it in from the label.
+
+**Saved meals and recipes** (the Meals page) — save any meal on Today as a meal to log again
+in one tap, or build a recipe from the food list: ingredients by weight, the cooked weight or
+number of servings, and its nutrition per serving and per 100 g as you build it. A recipe is
+made of USDA foods, so a logged portion carries every vitamin and mineral, not just energy.
 
 **Snap a meal** — photograph a whole plate; no key or sign-up needed. A vision model names
 each food it can see and estimates how much, as a range. The calories are *not* the
@@ -21,6 +37,12 @@ rice, not to dry rice at nearly three times the energy — and worked out from t
 Mixed dishes (a curry, a burger, sushi, a soup) keep the model's own estimate, because no
 single ingredient record describes them. Nothing is logged until you have checked it, and
 any item can be re-matched by searching the food list.
+
+For better amounts, put a bank card beside the plate: it is the same size everywhere
+(85.6 × 54 mm), so the model scales every item from it, and the review says so. Or
+**describe the meal** instead — typed, or spoken where the browser has speech recognition
+("two rotis and a bowl of dal with a bit of ghee") — and the same engines turn the words into
+items with typical portions, matched and reviewed the same way.
 
 Three engines can read the photo:
 
@@ -105,14 +127,38 @@ only; the panel says how much of the day that leaves uncounted rather than treat
 **History** — 7- and 30-day energy charts, every logged day with its totals, and the logged
 days' average against your reference intakes.
 
+**This week's vitamins and minerals** — once three days of the last seven are logged,
+History lists the nutrients that averaged under 70% of your reference intake, each with foods
+from the list that are rich in it per everyday portion (cooked lentils rather than dry, 30 g
+of seeds rather than a cup, no spices, oils or powders, never a food your dietary settings
+exclude, and never liver for vitamin A). Limits exceeded on three or more days are mentioned.
+It is about nutrients, never about eating more or less, and says when typed-in entries leave
+part of the week uncounted.
+
+**Report** — a printable summary of 7, 14 or 30 days for an appointment: days logged,
+averages, the energy chart, vitamins and minerals against your reference intakes, how much
+was weighed, estimated from a photo or energy-only, your dietary settings, and your own notes.
+"Print or save as PDF" uses the browser's print dialog with a print stylesheet.
+
+**Install it** — Food Log is an installable web app (Settings → Install, or Add to Home
+Screen on iPhone). A service worker keeps the app and Food is Medicine's food data on the
+device, so search, the log, meals and History work offline; reading a photo, a description or
+a barcode needs a connection unless the on-device model is downloaded.
+
+**Meal reminders (optional)** — Settings makes a calendar file with a daily reminder for each
+meal you tick, at your times, for your own calendar app. Food Log sends no notifications and
+keeps no record of whether you log; there are no streaks.
+
 **Sync across devices (optional)** — sign in with Google in Settings and the log is
 mirrored to Firestore in Food Log's Firebase project, one document per day, readable only by
 your signed-in account (the security rules allow `users/{uid}/**` to that user alone). The
 copy on the device stays the main one: days are merged entry by entry, the most recent change
 wins, and a deletion leaves a tombstone for 90 days so another device cannot hand the entry
 back. Edits are sent two seconds after you stop typing, and changes from your other devices
-arrive live. Signing out leaves the local log as it is. `tests/sync.test.mjs` runs several
-simulated devices against an in-memory backend to check they converge.
+arrive live. Signing out leaves the local log as it is. Saved meals and recipes sync the same
+way, and so do your profile and dietary settings — but never a Gemini key, the theme, the
+engine choice or the on-device model. `tests/sync*.test.mjs` run several simulated devices
+against an in-memory backend to check they converge.
 
 **Your data** — without sync, the log is stored only in this browser. Export it as JSON to keep a copy or
 move it to another device, and import it back (importing the same file twice adds nothing).
@@ -136,8 +182,9 @@ The two sites live on the same origin (`just-rice.github.io`), and Food Log uses
   that is a fair picture of the plate (`PHOTO_FALLBACK` in `js/app.js`).
 - Your profile (`fim.profile.v1`), dietary settings (`fim.prefs.v1`) and Gemini key
   (`fim.gemini.key`) are read from the same browser storage Food is Medicine writes, so they
-  carry over. Profile and dietary restrictions are edited there.
-- The log itself is `foodlog.log.v1`.
+  carry over. Dietary settings can be edited in either; the profile is edited there.
+- The log itself is `foodlog.log.v1`; saved meals and recipes `foodlog.library.v1`;
+  scanned products `foodlog.products.v1`.
 
 ## Privacy
 
@@ -145,7 +192,9 @@ The log, profile and key stay in this browser unless you turn on sync. With the 
 or your own key, a meal photo is shrunk on your device and sent to Google's Gemini (through
 Food Log's Firebase project, or with your key), and is not stored. With the on-device model it
 never leaves the device; the only network traffic is the one-time model download from
-Hugging Face and the Transformers.js library from jsDelivr. A key in localStorage is readable by any
+Hugging Face and the Transformers.js library from jsDelivr. A described meal goes to the same
+place a photo would. A scanned barcode is looked up on Open Food Facts; nothing else is sent.
+Speech recognition is the browser's own, which in Chrome sends audio to Google. A key in localStorage is readable by any
 script on the page, so do not save one on a shared computer. Free keys come from
 [Google AI Studio](https://aistudio.google.com/apikey).
 
@@ -160,12 +209,26 @@ git clone https://github.com/Just-Rice/food-log
 python3 -m http.server 8000     # then open http://localhost:8000/food-log/
 ```
 
+Tests need Node 22 and Playwright (a dev dependency only; the site itself has none):
+
+```sh
+cd food-log
+npm ci
+npx playwright install chromium
+npm test
+```
+
+`npm test` runs the unit tests (matcher, sync, gaps, PWA helpers) and the browser suites in
+`tests/e2e/`. Model replies, Open Food Facts and the camera are mocked, and no request leaves
+the machine. GitHub Actions runs the same on every push and pull request
+(`.github/workflows/test.yml`).
+
 ## Structure
 
 ```
 index.html        page shell; loads Food is Medicine's data files
 css/style.css     Food is Medicine's stylesheet plus the log, photo and measuring styles
-js/app.js         hash router and the Today, Snap, History and Settings views
+js/app.js         hash router and the Today, Snap, Meals, History, Report and Settings views
 js/tracker.js     the log: storage, totals, measuring, plate rescaling, import/export
 js/config.js      Firebase project settings and the ordered list of free Gemini models
 js/cascade.js     tries the models in order; reads quota errors; remembers spent models
@@ -175,8 +238,14 @@ js/gemini.js      Gemini client, key storage and the own-key engine
 js/local-model.js the on-device engine: device check, download, load, read a photo
 js/local-worker.js  Web Worker running Gemma 4 E2B with Transformers.js 4.3.1 (WebGPU)
 js/sync.js        optional Google sign-in sync through Firestore
-tests/            matcher regression test (with the 20 real model replies it uses) and
-                  the multi-device sync test
+js/barcode.js     camera scanning, check digits, Open Food Facts lookup and allergen mapping
+js/library.js     saved meals and recipes, recipe nutrition, merge for sync
+js/gaps.js        the week's low nutrients and the foods suggested for them
+js/pwa.js         service-worker registration, online state, install prompt, .ics reminders
+sw.js             the service worker (offline app shell and food data)
+manifest.webmanifest, icons/   the installable app
+tests/            unit tests, browser suites (tests/e2e), shared harness (tests/lib),
+                  fixtures, and the 20 real model replies the matcher test uses
 js/profile.js     profile storage (copied from Food is Medicine)
 js/prefs.js       display and dietary preferences (copied from Food is Medicine)
 ```
