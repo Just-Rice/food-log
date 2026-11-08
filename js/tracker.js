@@ -1,5 +1,12 @@
 // The food log: what was eaten, when, and how much. Everything is stored in
-// this device's localStorage; nothing is sent anywhere.
+// this device's localStorage; nothing is sent anywhere unless the person signs
+// in to sync (js/sync.js), and even then this copy stays the main one.
+//
+// So that two devices can be merged without either losing work, every entry
+// carries the time it was last changed (updatedAt), and a removed entry leaves
+// a tombstone -- its id and when it went -- under data.deleted for its day.
+// Without the tombstone, a device that still had the entry would hand it
+// straight back on the next merge.
 //
 // Each entry keeps its own copy of the nutrients per 100 g rather than only a
 // food slug. The food list is regenerated from USDA and a slug can be renamed
@@ -34,6 +41,11 @@
   // A day's grams are capped so a mistyped "15000" cannot wreck a week's chart.
   var MAX_GRAMS = 5000;
 
+  // How long a deletion is remembered. A tombstone only matters until every
+  // device has seen it; one away for longer than this may bring an entry back.
+  var TOMBSTONE_DAYS = 90;
+  var DAY_MS = 864e5;
+
   var listeners = [];
   var data = load();
 
@@ -57,32 +69,98 @@
       try { localStorage.setItem(KEY, JSON.stringify(legacy)); } catch (e) { /* ignore */ }
       return legacy;
     }
-    return { days: {} };
+    return { days: {}, deleted: {} };
   }
 
   function isNum(v) { return typeof v === 'number' && isFinite(v); }
+  function isDate(k) { return typeof k === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(k); }
+  function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  function clone(v) { return JSON.parse(JSON.stringify(v)); }
+
+  /** One entry as it may be stored: the checks every source goes through. */
+  function validEntry(e) {
+    if (!e || typeof e.id !== 'string' || typeof e.name !== 'string') return false;
+    if (MEALS.indexOf(e.meal) < 0) return false;
+    if (e.updatedAt != null && !isNum(e.updatedAt)) return false;
+    if (e.fixed) return typeof e.fixed === 'object' && isNum(e.fixed.kcal);
+    return !!e.per100 && typeof e.per100 === 'object' && isNum(e.per100.kcal) &&
+      isNum(e.grams) && e.grams > 0 && e.grams <= MAX_GRAMS;
+  }
+
+  /**
+   * When an entry last changed. Entries logged before sync existed have no
+   * updatedAt; the time they were logged is the best stand-in, and any edit
+   * made since sync arrived will beat it.
+   */
+  function stampOf(e) {
+    if (isNum(e.updatedAt)) return e.updatedAt;
+    return isNum(e.at) ? e.at : 0;
+  }
+
+  /**
+   * A stamp for a fresh edit: now, but always later than the entry's last
+   * one, so an edit wins over the version it replaced even when this device's
+   * clock is behind the one that wrote it.
+   */
+  function bump(e) { return Math.max(Date.now(), stampOf(e) + 1); }
+
+  function tombCutoff() { return Date.now() - TOMBSTONE_DAYS * DAY_MS; }
+
+  /** One day's tombstones, {entryId: ts}, checked and with stale ones dropped. */
+  function sanitiseTombs(t, cutoff) {
+    var out = {};
+    if (!isMap(t)) return out;
+    Object.keys(t).forEach(function (id) {
+      // __proto__ cannot be an own key of a plain object, and Firestore
+      // reserves __names__, so neither can be stored or synced.
+      if (!id || id.length > 100 || /^__.*__$/.test(id)) return;
+      if (isNum(t[id]) && t[id] > 0 && t[id] >= cutoff) out[id] = t[id];
+    });
+    return out;
+  }
+
+  function sanitiseDeleted(d) {
+    var out = {}, cutoff = tombCutoff();
+    if (!isMap(d)) return out;
+    Object.keys(d).forEach(function (date) {
+      if (!isDate(date)) return;
+      var t = sanitiseTombs(d[date], cutoff);
+      if (Object.keys(t).length) out[date] = t;
+    });
+    return out;
+  }
+
+  /** Whether a tombstone outlives this version of an entry. */
+  function buried(gone, e) { return own(gone, e.id) && gone[e.id] >= stampOf(e); }
 
   // Anything restored from storage or an import file is checked, so one
-  // corrupt entry cannot break the whole page on every load.
+  // corrupt entry cannot break the whole page on every load. Tombstones older
+  // than TOMBSTONE_DAYS are dropped here, so they do not pile up for ever.
   function sanitise(d) {
-    var out = { days: {} };
+    var out = { days: {}, deleted: sanitiseDeleted(d.deleted) };
     Object.keys(d.days).forEach(function (date) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Array.isArray(d.days[date])) return;
-      var list = d.days[date].filter(function (e) {
-        if (!e || typeof e.id !== 'string' || typeof e.name !== 'string') return false;
-        if (MEALS.indexOf(e.meal) < 0) return false;
-        if (e.fixed) return typeof e.fixed === 'object' && isNum(e.fixed.kcal);
-        return e.per100 && typeof e.per100 === 'object' && isNum(e.per100.kcal) &&
-          isNum(e.grams) && e.grams > 0 && e.grams <= MAX_GRAMS;
-      });
+      if (!isDate(date) || !Array.isArray(d.days[date])) return;
+      var gone = out.deleted[date] || {};
+      var list = d.days[date].filter(function (e) { return validEntry(e) && !buried(gone, e); });
       if (list.length) out.days[date] = list;
     });
     return out;
   }
 
-  function persist() {
+  /**
+   * Save, then tell listeners which days changed. `meta.remote` is true when
+   * the change came from another device through mergeDay, so sync can tell
+   * it apart from an edit made here and not send it straight back.
+   */
+  function persist(dates, meta) {
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) { /* ignore */ }
-    listeners.forEach(function (fn) { fn(); });
+    var info = { remote: !!(meta && meta.remote) };
+    listeners.forEach(function (fn) {
+      // One listener failing must not stop the others (sync among them)
+      // hearing of the change; the error still reaches the console.
+      try { fn((dates || []).slice(), info); } catch (err) { setTimeout(function () { throw err; }, 0); }
+    });
   }
 
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -217,6 +295,7 @@
       source: item.source || (item.fixed ? 'manual' : 'food'),
       at: Date.now()
     };
+    e.updatedAt = e.at;
     if (item.fixed) {
       e.name = String(item.name || '').slice(0, 120) || 'Food';
       e.fixed = {};
@@ -256,7 +335,7 @@
       if (plate >= 8 && plate <= 45) e.plateAssumed = plate;
     }
     (data.days[date] = data.days[date] || []).push(e);
-    persist();
+    persist([date]);
     return e;
   }
 
@@ -283,7 +362,8 @@
       }
     }
     if (patch.meal && MEALS.indexOf(patch.meal) >= 0) e.meal = patch.meal;
-    persist();
+    e.updatedAt = bump(e);
+    persist([date]);
   }
 
   /**
@@ -318,18 +398,181 @@
       if (e.gramsHigh) e.gramsHigh = clampGrams(e.gramsHigh * f) || e.gramsHigh;
       e.plateAssumed = plateCm;
       e.plateSet = true;
+      e.updatedAt = bump(e);
       n++;
     });
-    if (n) persist();
+    if (n) persist([date]);
     return n;
+  }
+
+  /**
+   * Record that an entry is gone. The stamp is never earlier than the
+   * entry's own, so the deletion beats the version it removed even when
+   * another device with a faster clock made that version.
+   */
+  function bury(date, e, now) {
+    var gone = data.deleted[date] = data.deleted[date] || {};
+    gone[e.id] = Math.max(now, stampOf(e), own(gone, e.id) ? gone[e.id] : 0);
   }
 
   function remove(date, id) {
     var list = data.days[date];
     if (!list) return;
-    data.days[date] = list.filter(function (e) { return e.id !== id; });
+    var now = Date.now();
+    data.days[date] = list.filter(function (e) {
+      if (e.id !== id) return true;
+      bury(date, e, now);
+      return false;
+    });
     if (!data.days[date].length) delete data.days[date];
-    persist();
+    persist([date]);
+  }
+
+  // ---- merging another device's copy of a day ---------------------------
+
+  /**
+   * A stable text form of a value, with object keys sorted. Firestore does
+   * not keep the order of a map's keys, so comparing plain JSON would see a
+   * change on every round trip.
+   */
+  function canon(v) {
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if (v && typeof v === 'object') {
+      return '{' + Object.keys(v).sort().filter(function (k) { return v[k] !== undefined; })
+        .map(function (k) { return JSON.stringify(k) + ':' + canon(v[k]); }).join(',') + '}';
+    }
+    return JSON.stringify(v);
+  }
+
+  /**
+   * Whether copy `a` of an entry should replace copy `b`. The later change
+   * wins; two devices editing in the same millisecond are settled by content,
+   * so that both make the same choice and end up identical.
+   */
+  function newer(a, b) {
+    var sa = stampOf(a), sb = stampOf(b);
+    if (sa !== sb) return sa > sb;
+    return canon(a) > canon(b);
+  }
+
+  /**
+   * A day reduced to what it means -- live entries by id, and tombstones --
+   * so two copies can be compared however they are ordered or stored.
+   */
+  function signature(list, gone) {
+    var byId = Object.create(null);
+    list.forEach(function (e) { if (!byId[e.id] || newer(e, byId[e.id])) byId[e.id] = e; });
+    var live = Object.keys(byId).sort().map(function (id) { return byId[id]; })
+      .filter(function (e) { return !buried(gone, e); });
+    return canon({ entries: live, deleted: gone });
+  }
+
+  /** Another device's copy of a day, with the same checks as anything stored here. */
+  function readRemote(remote) {
+    remote = isMap(remote) ? remote : {};
+    return {
+      entries: (Array.isArray(remote.entries) ? remote.entries : []).filter(validEntry),
+      deleted: sanitiseTombs(remote.deleted, tombCutoff())
+    };
+  }
+
+  /**
+   * Fold another copy of a day into this one, without saving. Every id on
+   * either side is kept unless a tombstone at least as new as it says it was
+   * removed; an id on both sides keeps its newer version. Merging the same
+   * copy again finds nothing to change. Entries new to this device are slotted
+   * in by the time they were logged, and the ones already here keep their
+   * order, so a merge does not reshuffle the day on screen.
+   */
+  function mergeInto(date, remote) {
+    var r = readRemote(remote);
+    var before = data.days[date] || [];
+    var beforeGone = data.deleted[date] || {};
+    var was = canon({ entries: before, deleted: beforeGone });
+
+    var gone = {};
+    Object.keys(beforeGone).forEach(function (id) { gone[id] = beforeGone[id]; });
+    Object.keys(r.deleted).forEach(function (id) {
+      if (!own(gone, id) || gone[id] < r.deleted[id]) gone[id] = r.deleted[id];
+    });
+
+    var list = before.slice();
+    var had = Object.create(null), at = Object.create(null);
+    list.forEach(function (e, i) { had[e.id] = true; if (!(e.id in at)) at[e.id] = i; });
+    r.entries.forEach(function (x) {
+      x = clone(x);
+      if (x.id in at) {
+        if (newer(x, list[at[x.id]])) list[at[x.id]] = x;
+        return;
+      }
+      var i = list.length;
+      while (i > 0 && (list[i - 1].at || 0) > (x.at || 0)) i--;
+      list.splice(i, 0, x);
+      Object.keys(at).forEach(function (id) { if (at[id] >= i) at[id]++; });
+      at[x.id] = i;
+    });
+    list = list.filter(function (e) { return !buried(gone, e); });
+
+    if (list.length) data.days[date] = list; else delete data.days[date];
+    if (Object.keys(gone).length) data.deleted[date] = gone; else delete data.deleted[date];
+
+    var added = 0;
+    list.forEach(function (e) { if (!had[e.id]) added++; });
+    return { changed: canon({ entries: list, deleted: gone }) !== was, added: added };
+  }
+
+  /**
+   * Merge another device's copy of a day, `{entries, deleted}`, into this one.
+   * Entries that fail the checks sanitise() applies are ignored. Saves and
+   * tells listeners (with {remote: true}) only when something changed;
+   * returns whether it did.
+   */
+  function mergeDay(date, remote) {
+    if (!isDate(date)) return false;
+    var changed = mergeInto(date, remote).changed;
+    if (changed) persist([date], { remote: true });
+    return changed;
+  }
+
+  /**
+   * mergeDay for many days at once, {date: copy}, saving and notifying once:
+   * a first sync can bring a year of days, and saving the whole log for each
+   * one would be slow. Returns the dates that changed.
+   */
+  function mergeDays(map) {
+    var changed = [];
+    if (!isMap(map)) return changed;
+    Object.keys(map).forEach(function (date) {
+      if (isDate(date) && mergeInto(date, map[date]).changed) changed.push(date);
+    });
+    if (changed.length) persist(changed, { remote: true });
+    return changed;
+  }
+
+  /** This device's copy of a day, as sync sends it: plain data, nothing undefined. */
+  function dayDoc(date) {
+    var entries = clone(data.days[date] || []);
+    var deleted = clone(data.deleted[date] || {});
+    // The day's own latest change rather than the clock, so two devices
+    // holding the same day produce the same document.
+    var latest = 0;
+    entries.forEach(function (e) { latest = Math.max(latest, stampOf(e)); });
+    Object.keys(deleted).forEach(function (id) { latest = Math.max(latest, deleted[id]); });
+    return { entries: entries, deleted: deleted, updatedAt: latest };
+  }
+
+  /** Whether another copy of a day already says exactly what this one does. */
+  function sameDay(date, remote) {
+    var r = readRemote(remote);
+    var mine = sanitiseTombs(data.deleted[date], tombCutoff());
+    return signature(data.days[date] || [], mine) === signature(r.entries, r.deleted);
+  }
+
+  /** Every day with entries or tombstones, oldest first. */
+  function allDates() {
+    var seen = {};
+    Object.keys(data.days).concat(Object.keys(data.deleted)).forEach(function (d) { seen[d] = true; });
+    return Object.keys(seen).sort();
   }
 
   // ---- export / import --------------------------------------------------
@@ -351,22 +594,30 @@
       throw new Error('That file is not a Food Log export.');
     }
     var incoming = sanitise(parsed);
-    var added = 0;
+    var added = 0, changed = [];
+    // The same merge sync uses: an id already here keeps whichever copy
+    // changed last, so importing a file twice adds nothing the second time.
     Object.keys(incoming.days).forEach(function (date) {
-      var list = data.days[date] = data.days[date] || [];
-      var have = {};
-      list.forEach(function (e) { have[e.id] = true; });
-      incoming.days[date].forEach(function (e) {
-        if (!have[e.id]) { list.push(e); added++; }
-      });
+      var r = mergeInto(date, { entries: incoming.days[date], deleted: incoming.deleted[date] || {} });
+      added += r.added;
+      if (r.changed) changed.push(date);
     });
-    persist();
+    // An import is a change made here, so sync passes it on.
+    if (changed.length) persist(changed);
     return added;
   }
 
+  /**
+   * Delete everything. Each entry leaves a tombstone, so with sync on the
+   * deletion reaches the other devices instead of being undone by them.
+   */
   function clearAll() {
-    data = { days: {} };
-    persist();
+    var now = Date.now(), dates = Object.keys(data.days);
+    dates.forEach(function (date) {
+      data.days[date].forEach(function (e) { bury(date, e, now); });
+    });
+    data.days = {};
+    persist(dates);
   }
 
   function dayCount() { return Object.keys(data.days).length; }
@@ -379,6 +630,7 @@
     nutrientsOf: nutrientsOf, kcalRange: kcalRange, isEstimate: isEstimate, isComplete: isComplete,
     add: add, update: update, rescalePhoto: rescalePhoto, plateFactor: plateFactor, remove: remove,
     exportJson: exportJson, importJson: importJson, clearAll: clearAll,
+    mergeDay: mergeDay, mergeDays: mergeDays, dayDoc: dayDoc, sameDay: sameDay, allDates: allDates,
     dayCount: dayCount, importedFrom: importedFrom, newId: newId,
     onChange: function (fn) { listeners.push(fn); }
   };
