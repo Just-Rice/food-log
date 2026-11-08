@@ -2,20 +2,18 @@
 // through the app's own parser and USDA matcher, and the absurd matches found
 // in November 2026 must not come back.
 //
-// Run from the folder that holds both food-log and food-is-medicine:
+// Needs food-is-medicine checked out next to food-log, and Playwright (npm
+// install in food-log, or a global install via NODE_PATH):
 //   node food-log/tests/match.test.mjs
-// Needs Playwright (npm i playwright, or a global install).
 
-import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createRequire } from 'node:module';
+import { loadPlaywright } from './lib/pw.mjs';
+import { startServer } from './lib/serve.mjs';
 
-const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+const { chromium } = loadPlaywright();
 const here = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(here, '..', '..');
 const corpus = JSON.parse(fs.readFileSync(path.join(here, 'photo-corpus.json'), 'utf8')).replies;
 
 // name pattern -> slug pattern that must NOT be auto-matched
@@ -43,18 +41,8 @@ const EXPECTED = [
   [/lentils, cooked|^dal\b/i, /lentilscooked|toordalcooked/]
 ];
 
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.jpg': 'image/jpeg', '.json': 'application/json' };
-const server = http.createServer((req, res) => {
-  let p = decodeURIComponent(req.url.split('?')[0]);
-  if (p.endsWith('/')) p += 'index.html';
-  fs.readFile(path.join(ROOT, p), (err, data) => {
-    if (err) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'Content-Type': TYPES[path.extname(p)] || 'application/octet-stream' });
-    res.end(data);
-  });
-});
-await new Promise((r) => server.listen(0, r));
-const base = 'http://localhost:' + server.address().port + '/food-log/';
+const server = await startServer();
+const base = server.base;
 
 const browser = await chromium.launch();
 const page = await browser.newPage();

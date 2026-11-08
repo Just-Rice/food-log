@@ -1,0 +1,86 @@
+{
+  "items": [
+    {
+      "name": "White rice, cooked",
+      "search": "rice",
+      "cooked": true,
+      "grams": 250,
+      "grams_low": 180,
+      "grams_high": 350,
+      "kcal_per_100g": 130,
+      "confidence": "high"
+    },
+    {
+      "name": "Roti/Chapati",
+      "search": "roti",
+      "cooked": true,
+      "grams": 150,
+      "grams_low": 100,
+      "grams_high": 200,
+      "kcal_per_100g": 250,
+      "confidence": "high"
+    },
+    {
+      "name": "Puri/Fried bread",
+      "search": "fried bread",
+      "cooked": true,
+      "grams": 100,
+      "grams_low": 50,
+      "grams_high": 150,
+      "kcal_per_100g": 280,
+      "confidence": "medium"
+    },
+    {
+      "name": "Raita/Yogurt dip",
+      "search": "yogurt",
+      "cooked": false,
+      "grams": 150,
+      "grams_low": 100,
+      "grams_high": 200,
+      "kcal_per_100g": 60,
+      "confidence": "medium"
+    },
+    {
+      "name": "Curry/Gravy 1",
+      "search": "curry",
+      "cooked": true,
+      "grams": 200,
+      "grams_low": 150,
+      "grams_high": 250,
+      "kcal_per_100g": 150,
+      "confidence": "medium"
+    },
+    {
+      "name": "Curry/Gravy 2",
+      "search": "curry",
+      "cooked": true,
+      "grams": 200,
+      "grams_low": 150,
+      "grams_high": 250,
+      "kcal_per_100g": 150,
+      "confidence": "medium"
+    },
+    {
+      "name": "Curry/Gravy 3",
+      "search": "curry",
+      "cooked": true,
+      "grams": 200,
+      "grams_low": 150,
+      "grams_high": 250,
+      "kcal_per_100g": 150,
+      "confidence": "medium"
+    },
+    {
+      "name": "Salad/Vegetable mix",
+      "search": "vegetables",
+      "cooked": false,
+      "grams": 100,
+      "grams_low": 50,
+      "grams_high": 150,
+      "kcal_per_100g": 40,
+      "confidence": "low"
+    }
+  ],
+  "plate_cm": 26,
+  "notes": "Estimates are based on visual proportion and typical serving sizes for Indian meals, with added fat from cooking oils."
+}

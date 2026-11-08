@@ -1,0 +1,31 @@
+# Food Log loads its food data from Food is Medicine at ../food-is-medicine/
+# (one copy of the data, shared on GitHub Pages), so the tests need both repos
+# checked out side by side; they serve the parent folder and open /food-log/.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: food-log
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: food-log
+      - uses: actions/checkout@v4
+        with:
+          repository: Just-Rice/food-is-medicine
+          path: food-is-medicine
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm test
