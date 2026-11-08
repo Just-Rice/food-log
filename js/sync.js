@@ -20,6 +20,7 @@
   // same profile and dietary settings without telling Food Log, so a change
   // is detected by comparing with this snapshot rather than by listening.
   var SETTINGS_SNAPSHOT = 'foodlog.sync.settings.v1';
+  var HIDE_KCAL = 'foodlog.hideKcal';       // "Hide calories", synced with the settings
   var PUSH_DELAY = 2000;               // edits are batched for this long before sending
   var C = window.FoodLogConfig || {};
   var Tracker = window.Tracker;
@@ -28,6 +29,8 @@
   var state = { status: 'off', user: null, lastSync: null, error: '' };
   var listeners = [];
   var cards = [];
+  var confirming = false;   // the "delete my synced data" check is showing
+  var paused = false;       // deleting from the cloud began: send nothing more
   var unlisten = null;
   var pending = {};
   var timer = null;
@@ -128,6 +131,47 @@
       pushSettings: function (uid, doc) {
         return load().then(function (f) { return f.fs.setDoc(f.fs.doc(f.db, 'users', uid, 'settings', 'main'), doc); });
       },
+      // Asks Google to confirm it is the same person before an account is
+      // deleted. Like signIn, the popup has to open inside the click.
+      reauth: function () {
+        var go = function (f) {
+          var u = f.a.currentUser;
+          if (!u) return Promise.reject(new Error('Not signed in.'));
+          return f.auth.reauthenticateWithPopup(u, new f.auth.GoogleAuthProvider());
+        };
+        return ready ? go(ready) : load().then(go);
+      },
+      /** Every document Food Log keeps for this account, deleted in batches. */
+      deleteAll: function (uid) {
+        return load().then(function (f) {
+          return f.fs.getDocs(days(f, uid)).then(function (snap) {
+            var refs = [];
+            snap.forEach(function (d) { refs.push(d.ref); });
+            refs.push(f.fs.doc(f.db, 'users', uid, 'settings', 'main'),
+                      f.fs.doc(f.db, 'users', uid, 'library', 'main'),
+                      f.fs.doc(f.db, 'users', uid, 'library', 'memory'));
+            var chain = Promise.resolve();
+            for (var i = 0; i < refs.length; i += 400) {
+              (function (part) {
+                chain = chain.then(function () {
+                  var batch = f.fs.writeBatch(f.db);
+                  part.forEach(function (r) { batch.delete(r); });
+                  return batch.commit();
+                });
+              })(refs.slice(i, i + 400));
+            }
+            return chain.then(function () { return snap.size; });
+          });
+        });
+      },
+      /** The Firebase sign-in account itself. */
+      deleteUser: function () {
+        return load().then(function (f) {
+          var u = f.a.currentUser;
+          if (!u) return null;
+          return f.auth.deleteUser(u).then(function () { userOf(null); });
+        });
+      },
       pullLibrary: function (uid) {
         return load().then(function (f) { return f.fs.getDoc(f.fs.doc(f.db, 'users', uid, 'library', 'main')); })
           .then(function (d) { return d.exists() ? d.data() : null; });
@@ -183,7 +227,7 @@
     hooked = true;
     Tracker.onChange(function (dates, info) {
       // Changes that came from another device are not sent back.
-      if (!state.user || (info && info.remote) || !dates) return;
+      if (!state.user || paused || (info && info.remote) || !dates) return;
       dates.forEach(function (d) { pending[d] = true; });
       clearTimeout(timer);
       timer = setTimeout(flush, PUSH_DELAY);
@@ -196,7 +240,7 @@
     timer = null;
     var user = state.user, dates = Object.keys(pending);
     pending = {};
-    if (!user || !dates.length) return Promise.resolve();
+    if (!user || paused || !dates.length) return Promise.resolve();
     return Promise.all(dates.map(function (d) {
       return getBackend().push(user.uid, d, Tracker.dayDoc(d));
     })).then(function () {
@@ -225,14 +269,18 @@
   function localSettings() {
     var P = window.Prefs, prof = window.Profile && window.Profile.get();
     var p = P ? P.get() : {};
+    var hide = false;
+    try { hide = localStorage.getItem(HIDE_KCAL) === '1'; } catch (e) { /* ignore */ }
     return {
       profile: prof ? JSON.parse(JSON.stringify(prof)) : null,
-      diet: { diet: p.diet || 'none', allergens: (p.allergens || []).slice().sort(), customExclude: p.customExclude || '' }
+      diet: { diet: p.diet || 'none', allergens: (p.allergens || []).slice().sort(), customExclude: p.customExclude || '' },
+      display: { hideKcal: hide }
     };
   }
 
   function isEmptySettings(s) {
-    return !s.profile && s.diet.diet === 'none' && !s.diet.allergens.length && !s.diet.customExclude;
+    return !s.profile && s.diet.diet === 'none' && !s.diet.allergens.length && !s.diet.customExclude &&
+      !(s.display && s.display.hideKcal);
   }
 
   function snapshot(v) {
@@ -250,6 +298,16 @@
       if (r.profile && Prof.valid(r.profile)) Prof.save(r.profile);
       else if (!r.profile && Prof.get()) Prof.clear();
     }
+    if (r.display) {
+      var was = null;
+      try { was = localStorage.getItem(HIDE_KCAL) === '1'; } catch (e) { /* ignore */ }
+      if (was !== !!r.display.hideKcal) {
+        try {
+          if (r.display.hideKcal) localStorage.setItem(HIDE_KCAL, '1'); else localStorage.removeItem(HIDE_KCAL);
+        } catch (e) { /* ignore */ }
+        try { window.dispatchEvent(new Event('foodlog:display')); } catch (e) { /* no DOM (tests) */ }
+      }
+    }
     if (P && r.diet) {
       if (P.get('diet') !== r.diet.diet) P.set('diet', r.diet.diet);
       if (canon((P.get('allergens') || []).slice().sort()) !== canon(r.diet.allergens || [])) P.set('allergens', (r.diet.allergens || []).slice());
@@ -264,6 +322,7 @@
       return window.Prefs && window.Prefs.ALLERGENS.indexOf(a) >= 0;
     }).sort() : [];
     return {
+      display: { hideKcal: !!(doc.display && doc.display.hideKcal) },
       profile: doc.profile && window.Profile && window.Profile.valid(doc.profile) ? doc.profile : null,
       diet: {
         diet: window.Prefs && window.Prefs.DIETS.indexOf(d.diet) >= 0 ? d.diet : 'none',
@@ -311,13 +370,15 @@
   }
 
   var settingsTimer = null;
+  var settingsChanged = function () {};
   function hookSettings() {
+    settingsChanged = changed;
     function changed() {
-      if (!state.user || settingsBusy) return;
+      if (!state.user || paused || settingsBusy) return;
       clearTimeout(settingsTimer);
       settingsTimer = setTimeout(function () {
         var b = getBackend();
-        if (!b.pullSettings) return;
+        if (!b.pullSettings || !state.user || paused) return;
         b.pullSettings(state.user.uid).then(syncSettings).catch(function (err) {
           set({ status: 'error', error: message(err) });
         });
@@ -344,9 +405,10 @@
   function hookLibrary() {
     if (!window.Library) return;
     window.Library.onChange(function (info) {
-      if (!state.user || (info && info.remote)) return;
+      if (!state.user || paused || (info && info.remote)) return;
       clearTimeout(libraryTimer);
       libraryTimer = setTimeout(function () {
+        if (!state.user || paused) return;
         getBackend().pushLibrary(state.user.uid, window.Library.doc()).then(function () {
           set({ lastSync: Date.now(), status: 'on', error: '' });
         }, function (err) { set({ status: 'error', error: message(err) }); });
@@ -360,6 +422,7 @@
    * then listen for changes from other devices.
    */
   function connect(user) {
+    paused = false;
     hookTracker();
     if (!settingsHooked) { settingsHooked = true; hookSettings(); hookLibrary(); }
     set({ user: user, status: 'syncing', error: '' });
@@ -403,6 +466,7 @@
   }
 
   function signOut() {
+    paused = false;
     if (unlisten) { unlisten(); unlisten = null; }
     clearTimeout(timer);
     pending = {};
@@ -410,6 +474,43 @@
     snapshot(null);
     set({ status: 'off', user: null, error: '' });
     return getBackend().signOut().catch(function () { /* already signed out */ });
+  }
+
+  /**
+   * Delete everything Food Log stored in the cloud for this account -- every
+   * day, the settings, saved meals, recipes and what it has learnt -- then
+   * the sign-in account, then sign out. The log on this device is untouched.
+   * Must be called from a click: Google confirms who it is with a popup.
+   * Resolves to the number of days deleted.
+   */
+  function deleteCloud() {
+    var b = getBackend(), user = state.user;
+    if (!user || !b.deleteAll) return Promise.reject(new Error('Not signed in.'));
+    set({ status: 'deleting', error: '' });
+    var who = b.reauth ? b.reauth() : Promise.resolve();
+    return who.then(function () {
+      // Stop listening and sending first, so nothing is written back.
+      paused = true;
+      if (unlisten) { unlisten(); unlisten = null; }
+      clearTimeout(timer); clearTimeout(settingsTimer); clearTimeout(libraryTimer);
+      pending = {};
+      return b.deleteAll(user.uid);
+    }).then(function (n) {
+      return (b.deleteUser ? b.deleteUser() : Promise.resolve()).then(function () { return n; });
+    }).then(function (n) {
+      flag(false);
+      snapshot(null);
+      set({ status: 'off', user: null, error: '', deleted: n });
+      return n;
+    }, function (err) {
+      var cancelled = /popup-closed|cancelled-popup/.test((err && err.code) || '');
+      // If deleting had started, syncing stays paused: resuming would send
+      // this device's log straight back. Trying again, or signing out, ends it.
+      set({ status: !state.user ? 'off' : (paused ? 'error' : 'on'),
+            error: cancelled ? 'Nothing was deleted: Google did not confirm it was you.'
+              : 'Deleting did not finish: ' + message(err) + ' Syncing is paused; try again.' });
+      throw err;
+    });
   }
 
   /**
@@ -437,6 +538,7 @@
     var s = state, who = s.user ? (s.user.name ? s.user.name + ' (' + s.user.email + ')' : s.user.email) : '';
     var line = '';
     if (s.status === 'signing-in') line = 'Signing in…';
+    else if (s.status === 'deleting') line = 'Deleting your data from the cloud…';
     else if (s.status === 'syncing') line = s.user ? 'Signed in as ' + who + '. Syncing…' : 'Reconnecting…';
     else if (s.user) line = 'Signed in as ' + who + '.' + (s.lastSync ? ' Last synced at ' + when(s.lastSync) + '.' : '');
     return '<h2>Sync across devices</h2>' +
@@ -447,20 +549,42 @@
       'is.</p>' +
       (line ? '<p>' + esc(line) + '</p>' : '') +
       (s.error ? '<div class="note danger"><p>' + esc(s.error) + '</p></div>' : '') +
-      '<div class="btn-row">' + (s.user
-        ? '<button class="btn ghost" type="button" data-sync="out">Sign out</button>'
-        : '<button class="btn" type="button" data-sync="in"' +
-          (s.status === 'signing-in' ? ' disabled' : '') + '>Sign in with Google</button>') +
-      '</div>';
+      (s.deleted != null && !s.user
+        ? '<div class="note"><p>Deleted from the cloud: ' + s.deleted + ' day' + (s.deleted === 1 ? '' : 's') +
+          ' of log, your settings, saved meals and recipes, and your Food Log sign-in. The log on this device is untouched.</p></div>'
+        : '') +
+      (s.user && confirming
+        ? '<div class="note danger"><p>This deletes every day of your log, your settings, saved meals and recipes ' +
+          'that Food Log stored in the cloud for ' + esc(s.user.email || 'this account') + ', and your Food Log ' +
+          'sign-in. Your other devices stop syncing. The log on this device stays as it is. Google will ask you to ' +
+          'confirm it is you.</p></div>' +
+          '<div class="btn-row"><button class="btn danger" type="button" data-sync="delete-go"' +
+          (s.status === 'deleting' ? ' disabled' : '') + '>Delete everything in the cloud</button>' +
+          '<button class="btn ghost" type="button" data-sync="delete-cancel">Cancel</button></div>'
+        : '<div class="btn-row">' + (s.user
+            ? '<button class="btn ghost" type="button" data-sync="out">Sign out</button>' +
+              '<button class="btn ghost" type="button" data-sync="delete">Delete my synced data…</button>'
+            : '<button class="btn" type="button" data-sync="in"' +
+              (s.status === 'signing-in' ? ' disabled' : '') + '>Sign in with Google</button>') +
+          '</div>');
   }
 
   function renderCards() {
     cards = cards.filter(function (el) { return el.isConnected; });
     cards.forEach(function (el) {
       el.innerHTML = cardHtml();
-      var b = el.querySelector('[data-sync]');
-      if (b) b.addEventListener('click', function () {
-        if (b.dataset.sync === 'in') signIn(); else signOut();
+      el.querySelectorAll('[data-sync]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var a = b.dataset.sync;
+          if (a === 'in') { state.deleted = null; signIn(); }
+          else if (a === 'out') signOut();
+          else if (a === 'delete') { confirming = true; renderCards(); }
+          else if (a === 'delete-cancel') { confirming = false; renderCards(); }
+          else if (a === 'delete-go') {
+            deleteCloud().then(function () { confirming = false; renderCards(); },
+                               function () { confirming = false; renderCards(); });
+          }
+        });
       });
     });
   }
@@ -480,7 +604,8 @@
 
   window.Sync = {
     available: function () { return !!(window.FirebaseEngine && C.FIREBASE && Tracker && Tracker.mergeDay); },
-    start: start, signIn: signIn, signOut: signOut, flush: flush,
+    start: start, signIn: signIn, signOut: signOut, flush: flush, deleteCloud: deleteCloud,
+    settingsChanged: function () { settingsChanged(); },
     useBackend: function (b) { backend = b; },
     state: function () { return state; },
     onChange: function (fn) { listeners.push(fn); },

@@ -370,6 +370,76 @@
     persist([date]);
   }
 
+  /** Give an entry a new name. The food it is matched to stays the same. */
+  function rename(date, id, name) {
+    var e = find(date, id);
+    name = String(name || '').trim().slice(0, 120);
+    if (!e || !name || name === e.name) return false;
+    e.name = name;
+    e.updatedAt = bump(e);
+    persist([date]);
+    return true;
+  }
+
+  /**
+   * A copy of an entry for another day or meal: a fresh id and stamps, and no
+   * link to the photo it came from, so correcting that photo's plate size
+   * later never reaches into the copy.
+   */
+  function copyOf(e, meal, now) {
+    var c = clone(e);
+    c.id = newId();
+    c.meal = MEALS.indexOf(meal) >= 0 ? meal : e.meal;
+    c.at = now;
+    c.updatedAt = now;
+    delete c.photoId; delete c.plateSet;
+    return c;
+  }
+
+  /**
+   * Move an entry to another meal, or another day. Within a day it is an
+   * edit; across days the entry is buried on the old day and a copy is added
+   * to the new one, so other devices see the deletion and the addition and
+   * agree. Returns the entry as it now stands, or null.
+   */
+  function move(date, id, toDate, toMeal) {
+    var e = find(date, id);
+    if (!e || !isDate(toDate)) return null;
+    if (MEALS.indexOf(toMeal) < 0) toMeal = e.meal;
+    if (toDate === date) {
+      if (toMeal === e.meal) return e;
+      e.meal = toMeal;
+      e.updatedAt = bump(e);
+      persist([date]);
+      return e;
+    }
+    var now = Math.max(Date.now(), stampOf(e) + 1);
+    var c = copyOf(e, toMeal, now);
+    c.at = e.at || now;   // still eaten when it was
+    if (e.photoId) { c.photoId = e.photoId; if (e.plateSet) c.plateSet = true; }
+    bury(date, e, now);
+    data.days[date] = data.days[date].filter(function (x) { return x.id !== id; });
+    if (!data.days[date].length) delete data.days[date];
+    (data.days[toDate] = data.days[toDate] || []).push(c);
+    persist([date, toDate]);
+    return c;
+  }
+
+  /**
+   * Copy every entry of one meal to another day and meal ("same as
+   * yesterday's breakfast"). Returns the number copied.
+   */
+  function copyMeal(fromDate, meal, toDate, toMeal) {
+    if (!isDate(toDate)) return 0;
+    var src = (data.days[fromDate] || []).filter(function (e) { return e.meal === meal; });
+    if (!src.length) return 0;
+    var now = Date.now();
+    var list = data.days[toDate] = data.days[toDate] || [];
+    src.forEach(function (e, i) { list.push(copyOf(e, toMeal || meal, now + i)); });
+    persist([toDate]);
+    return src.length;
+  }
+
   /**
    * How much a plate-size correction changes a portion. The model judged
    * amounts against the plate it assumed; if the real plate is smaller, every
@@ -632,7 +702,7 @@
     today: today, shift: shift, dateKey: dateKey, guessMeal: guessMeal,
     day: day, totals: totals, history: history, find: find,
     nutrientsOf: nutrientsOf, kcalRange: kcalRange, isEstimate: isEstimate, isComplete: isComplete,
-    add: add, update: update, rescalePhoto: rescalePhoto, plateFactor: plateFactor, remove: remove,
+    add: add, update: update, rename: rename, move: move, copyMeal: copyMeal, rescalePhoto: rescalePhoto, plateFactor: plateFactor, remove: remove,
     exportJson: exportJson, importJson: importJson, clearAll: clearAll,
     mergeDay: mergeDay, mergeDays: mergeDays, dayDoc: dayDoc, sameDay: sameDay, allDates: allDates,
     dayCount: dayCount, importedFrom: importedFrom, newId: newId,

@@ -888,6 +888,16 @@ ul.photo-items li.off .p-main, ul.photo-items li.off .p-amt, ul.photo-items li.o
   border-top: 1.5px dashed var(--amber);
   bottom: calc(var(--plot-h) * var(--f) + 6px + .78rem * 1.4);
 }
+/* With calories hidden: one dot per day, filled when something was logged. */
+.day-strip { display: grid; gap: 6px; }
+.ds-day { display: flex; flex-direction: column; align-items: center; text-decoration: none; min-width: 0; }
+.ds-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--card-edge); }
+.day-strip.dense .ds-dot { width: 12px; height: 12px; }
+.ds-day.on .ds-dot { background: color-mix(in srgb, var(--accent) 45%, transparent); border-color: transparent; }
+.ds-day.sel .ds-dot { box-shadow: 0 0 0 2px var(--accent); }
+.ds-day.sel .wk-day { color: var(--ink); font-weight: 600; }
+.toggle-row { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.toggle-row input { width: auto; }
 @media (max-width: 560px) {
   .week-chart { gap: 4px; --plot-h: 120px; }
   .wk-val { font-size: .66rem; }
@@ -980,6 +990,13 @@ ul.product-facts { list-style: none; margin: 4px 0 8px; padding: 0; display: fle
 .lib-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
 .lib-card .hint { margin: 4px 0 8px; }
 .save-meal-btn { margin-top: 8px; }
+.save-meal-btn + .save-meal-btn { margin-left: 6px; }
+ul.log-list li .entry-tools { flex: 1 1 100%; display: grid; gap: 8px; padding: 8px 0 2px; }
+.entry-tools label, .copy-meal label { flex: 1 1 100%; font-size: .78rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
+.entry-tools input[type="text"] { flex: 1 1 200px; width: auto; text-align: left; }
+.entry-tools input[type="date"], .copy-meal input[type="date"] { width: auto; }
+.copy-meal { margin-top: 10px; }
+.same-yesterday { margin: 0 0 12px; }
 .save-meal { margin-top: 10px; }
 .save-meal label { flex: 1 1 100%; font-size: .78rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
 .save-meal input[type="text"] { flex: 1 1 200px; width: auto; text-align: left; }

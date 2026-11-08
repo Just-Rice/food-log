@@ -25,6 +25,10 @@ allergen lists can be incomplete (Nutella's lists nuts but not milk), so the pan
 label on the packet is what to trust. Products are cached on the device and show up in recent
 foods; an unknown code falls back to typing it in from the label.
 
+**Copy and move** — "Same as yesterday's breakfast" in one tap, copy any meal to another day,
+and move or rename an entry. A copy of a photo item is not tied to that photo, so correcting
+the original plate size later leaves the copy alone.
+
 **Saved meals and recipes** (the Meals page) — save any meal on Today as a meal to log again
 in one tap, or build a recipe from the food list: ingredients by weight, the cooked weight or
 number of servings, and its nutrition per serving and per 100 g as you build it. A recipe is
@@ -160,8 +164,19 @@ way, and so do your profile and dietary settings — but never a Gemini key, the
 engine choice or the on-device model. `tests/sync*.test.mjs` run several simulated devices
 against an in-memory backend to check they converge.
 
+**Hide calories** — a switch in Settings for anyone who finds calorie numbers unhelpful. Every
+energy figure, total, target and chart goes; foods, amounts, vitamins and minerals stay, and
+History shows which days were logged instead of an energy chart. It syncs with your other
+settings. `tests/e2e/logging.test.mjs` walks every page with it on and checks that no energy
+figure is left in the text, tooltips or screen-reader labels.
+
 **Your data** — without sync, the log is stored only in this browser. Export it as JSON to keep a copy or
 move it to another device, and import it back (importing the same file twice adds nothing).
+For a spreadsheet, export every entry, or one row per day, as CSV: a blank cell means not
+known, never zero, and a name that starts like a formula is defused so opening the file cannot
+run it. Signed in, **Delete my synced data** erases every document Food Log stored in the cloud
+for your account and the sign-in itself (Google asks you to confirm it is you), then signs out;
+the log on the device stays.
 A log kept in the old vegetarian edition is brought across automatically.
 
 ## What it does not do
@@ -241,6 +256,7 @@ js/sync.js        optional Google sign-in sync through Firestore
 js/barcode.js     camera scanning, check digits, Open Food Facts lookup and allergen mapping
 js/library.js     saved meals and recipes, recipe nutrition, merge for sync
 js/gaps.js        the week's low nutrients and the foods suggested for them
+js/csv.js         the log as spreadsheet files
 js/pwa.js         service-worker registration, online state, install prompt, .ics reminders
 sw.js             the service worker (offline app shell and food data)
 manifest.webmanifest, icons/   the installable app

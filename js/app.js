@@ -36,12 +36,16 @@
     no_recipes: 'No recipes yet.',
     log_it: 'Log', log_serving: 'Log 1 serving', edit: 'Edit', del: 'Delete', save: 'Save',
     delete_confirm: 'Delete “{name}”?',
+    edit_entry: 'Edit', rename: 'Rename', move_to: 'Move to', move: 'Move', name_label: 'Name',
+    copy_meal: 'Copy this meal to…', copy: 'Copy', same_as_yesterday: 'Same as yesterday’s {meal}',
+    copied_n: 'Copied {n} to {day}.', moved_to: 'Moved to {day}.', day_label: 'Day',
     save_as_meal: 'Save as a meal', meal_name: 'Name for this meal', saved_meal_notice: 'Saved “{name}”. It is under My meals when you add food.',
     my_meals: 'My meals and recipes',
     recipe_name: 'Recipe name', ingredients: 'Ingredients', add_ingredient: 'Add an ingredient…',
     cooked_weight: 'Cooked weight (g, optional)', cooked_hint: 'Weigh the finished pot if you can: cooking changes weight, mostly water.',
     servings: 'Servings', per_serving_line: 'Per serving ({g} g): {kcal} kcal · {p} g protein · {c} g carbohydrate · {f} g fat · {fi} g fibre',
-    per100_line: 'Per 100 g: {kcal} kcal', recipe_tag: 'recipe', logged_notice: 'Logged “{name}”.',
+    per100_line: 'Per 100 g: {kcal} kcal',
+    per_serving_nokcal: 'Per serving ({g} g): {p} g protein · {c} g carbohydrate · {f} g fat · {fi} g fibre', recipe_tag: 'recipe', logged_notice: 'Logged “{name}”.',
     recipe_needs: 'Add at least one ingredient.',
     nav_fim: 'Food is Medicine',
     today: 'Today', yesterday: 'Yesterday',
@@ -60,6 +64,7 @@
     profile_title: 'Set up your profile',
     range_note: 'Photo items are shown as a range until measured. Measure an item and its range goes.',
     est_share: '{est} of these {total} kcal come from photo portions nobody has measured yet.',
+    est_share_nokcal: 'Some of these amounts come from photo portions nobody has measured yet.',
     from_photo: 'photo', typed_in: 'typed in', measured: 'measured',
     photo_saw: 'Photo: {name}',
     energy_only: 'Energy only — the model’s estimate, not USDA data',
@@ -86,7 +91,8 @@
     discard: 'Discard',
     snap_accuracy: 'From the photo alone, expect the true figure to be anywhere from a third lower to a third higher: a picture has no depth, and oil and sauces hide energy. Measuring an item — a scale, a cup, a count of pieces — replaces its guess with a real amount.',
     include: 'Include', unsure: 'unsure', match_as: 'Match to food',
-    model_estimate: 'No match — model estimate, ~{n} kcal/100 g',
+    model_estimate: 'No match — model estimate, ~{n} kcal/100 g', model_estimate_nokcal: 'No match — the photo reader’s own estimate',
+    snap_mismatch_nokcal: 'This match is far denser or lighter than the photo reader expected. Check it is the right form — cooked rather than dry, say.',
     snap_mismatch: 'USDA gives {usda} kcal/100 g for this match, but the model expected about {model}. Check it is the right form — cooked rather than dry, say.',
     snap_no_match: 'No close match in the food list, so this uses the model’s own energy estimate, which is less reliable.',
     plate_title: 'Plate size',
@@ -109,6 +115,8 @@
     nutrients_lede_personal: 'The day against your own reference intakes (RDA or AI for your age and sex).',
     nutrients_lede_generic: 'The day against the general Daily Values printed on US food labels. Set up a profile for your own.',
     nutrients_partial_one: '1 entry ({kcal} kcal) has no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so its vitamins and minerals are not counted here.',
+    nutrients_partial_one_nokcal: '1 entry has no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so its vitamins and minerals are not counted here.',
+    nutrients_partial_nokcal: '{n} entries have no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so their vitamins and minerals are not counted here.',
     nutrients_partial: '{n} entries ({kcal} kcal in all) have no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so their vitamins and minerals are not counted here.',
     scan_btn: 'Scan a barcode', scan_title: 'Scan a barcode',
     scan_hint: 'Point the camera at the barcode on the packet and hold it steady.',
@@ -159,9 +167,13 @@
     reminders_btn: 'Download calendar file', reminders_none: 'Tick at least one meal.',
     offline_snap: 'You’re offline. Reading photos and descriptions needs a connection, unless the on-device model is downloaded (Settings).',
     history_title: 'History', history_lede: 'Energy by day, and how the logged days averaged against your reference intakes.',
+    history_lede_nokcal: 'The days you logged, and how they averaged against your reference intakes.',
+    strip_avg: '{days} of these {n} days logged.', strip_day_on: '{day}: {n} logged', strip_day_off: '{day}: nothing logged',
+    gaps_partial_nokcal: 'Some of this week’s entries have no vitamin and mineral data, so these averages are a floor.',
+    report_days: 'Days logged', q_partial_nokcal: 'No vitamin and mineral data', report_by_entries: 'Shares of entries.',
     days_7: '7 days', days_30: '30 days',
     avg_title: 'Average across logged days',
-    days_list: 'Logged days', entries_n: '{n} entries',
+    days_list: 'Logged days', entries_n: '{n} entries', entries_one: '1 entry',
     settings_title: 'Settings',
     key_title: 'Your own Gemini key (optional)',
     key_lede: 'Photo estimates work without one: Food Log reads photos through its own free service, whose daily allowance is shared by everyone using it. A free key of your own gives you a separate allowance. It is used only for photos, sent only to Google, and stored in this browser under the same name Food is Medicine uses, so one key works on both.',
@@ -184,10 +196,14 @@
     no_x: 'no {x}',
     not_diet: 'not {diet}', may_contain: 'may contain {x}', avoid_tag: 'check: {x}',
     allergy_disclaimer: 'Food Log flags what the photo suggests, but it cannot tell whether a meal is safe for an allergy. Hidden ingredients do not show in a picture: check with whoever made it.',
+    hide_kcal_title: 'Calories', hide_kcal_label: 'Hide calories everywhere',
+    hide_kcal_lede: 'For anyone who finds calorie numbers unhelpful. Foods, amounts, vitamins and minerals stay; every energy figure, total and chart goes. It follows you to your other devices if you sync.',
     theme: 'Theme', theme_system: 'Match system', theme_light: 'Light', theme_dark: 'Dark',
     data_title: 'Your log',
     data_lede: 'The log lives only in this browser. Export it to keep a copy or move it to another device.',
-    export_btn: 'Export log', import_btn: 'Import a log file', clear_btn: 'Delete the whole log',
+    export_btn: 'Export log', csv_entries: 'Entries as a spreadsheet (CSV)', csv_days: 'Daily totals (CSV)',
+    csv_hint: 'Spreadsheet files open in Excel, Numbers or Google Sheets. A blank cell means not known, not zero.',
+    import_btn: 'Import a log file', clear_btn: 'Delete the whole log',
     clear_confirm: 'Delete every entry in the log? This cannot be undone.',
     imported_n: 'Imported {n} entries.', imported_legacy: 'Your log from the vegetarian edition was brought across.',
     days_logged: '{n} days logged.',
@@ -265,6 +281,15 @@
     if (a >= 0.1) return String(Math.round(v * 100) / 100);
     return String(Math.round(v * 1000) / 1000);
   }
+
+  // "Hide calories" (Settings): every energy figure is left out of the pages,
+  // the foods, vitamins and minerals stay. Synced with the other settings.
+  var HIDE_KCAL = 'foodlog.hideKcal';
+  function showKcal() {
+    try { return localStorage.getItem(HIDE_KCAL) !== '1'; } catch (e) { return true; }
+  }
+  /** `html` when energy figures are shown, '' when they are hidden. */
+  function kc(html) { return showKcal() ? html : ''; }
 
   function kcalText(lo, hi) {
     lo = Math.round(lo); hi = Math.round(hi);
@@ -429,7 +454,8 @@
   // ======================================================================
   // State
   // ======================================================================
-  var logState = { date: null, pick: null, pickGrams: null, meal: null, measuring: null, notice: '', scan: null, savingMeal: null };
+  var logState = { date: null, pick: null, pickGrams: null, meal: null, measuring: null, notice: '', scan: null, savingMeal: null,
+                   editing: null, copying: null };
   var snap = { status: null, hint: '' };
   var histState = { days: 7 };
 
@@ -576,7 +602,7 @@
             var kcal = 0;
             m.items.forEach(function (it) { kcal += it.fixed ? (it.fixed.kcal || 0) : it.per100.kcal * it.grams / 100; });
             return '<div class="card pad lib-card"><div class="lib-head"><strong>' + esc(m.name) + '</strong>' +
-              '<span class="dim">' + Math.round(kcal) + ' kcal</span></div>' +
+              kc('<span class="dim">' + Math.round(kcal) + ' kcal</span>') + '</div>' +
               '<p class="hint">' + esc(m.items.map(function (it) {
                 return it.name + (it.grams ? ' ' + fmt(it.grams) + ' g' : '');
               }).join(' · ')) + '</p>' +
@@ -589,7 +615,7 @@
         ? recipes.map(function (r) {
             var n = Library.nutrition(r);
             return '<div class="card pad lib-card"><div class="lib-head"><strong>' + esc(r.name) + '</strong>' +
-              '<span class="dim">' + Math.round(n.perServing.kcal || 0) + ' kcal / serving</span></div>' +
+              kc('<span class="dim">' + Math.round(n.perServing.kcal || 0) + ' kcal / serving</span>') + '</div>' +
               '<p class="hint">' + esc(r.ingredients.map(function (it) { return it.name + ' ' + fmt(it.grams) + ' g'; }).join(' · ')) + '</p>' +
               '<div class="btn-row"><button class="btn small" type="button" data-log-recipe="' + esc(r.id) + '">' + esc(t('log_serving')) + '</button>' +
               '<button class="btn ghost small" type="button" data-edit-recipe="' + esc(r.id) + '">' + esc(t('edit')) + '</button>' +
@@ -644,8 +670,8 @@
       '<input id="recName" type="text" maxlength="80" value="' + esc(r.name) + '"></div>' +
       '<h2 class="section" style="margin-top:16px">' + esc(t('ingredients')) + '</h2>' +
       '<ul class="log-list">' + r.ingredients.map(function (it, i) {
-        return '<li><span class="l-name">' + esc(it.name) + '<span class="l-sub">' +
-          fmt(it.per100.kcal * it.grams / 100) + ' kcal</span></span>' +
+        return '<li><span class="l-name">' + esc(it.name) + kc('<span class="l-sub">' +
+          fmt(it.per100.kcal * it.grams / 100) + ' kcal</span>') + '</span>' +
           '<span class="l-amt"><input type="number" min="1" max="5000" step="1" data-ing-g="' + i + '" value="' +
           esc(Math.round(it.grams)) + '" aria-label="' + esc(t('amount_g') + ', ' + it.name) + '"> g</span>' +
           '<button class="chip" type="button" data-ing-del="' + i + '" aria-label="' + esc(t('remove') + ' ' + it.name) + '">&times;</button></li>';
@@ -661,10 +687,10 @@
       '<input id="recServings" type="number" min="1" max="100" step="1" value="' + esc(r.servings || 1) + '"></div></div>' +
       '<p class="hint">' + esc(t('cooked_hint')) + '</p>' +
       (r.ingredients.length
-        ? '<p class="recipe-sum" id="recSum"><strong>' + esc(t('per_serving_line', {
+        ? '<p class="recipe-sum" id="recSum"><strong>' + esc(t(showKcal() ? 'per_serving_line' : 'per_serving_nokcal', {
             g: Math.round(n.servingGrams), kcal: Math.round(ps.kcal || 0), p: fmt(ps.protein || 0),
-            c: fmt(ps.carbs || 0), f: fmt(ps.fat || 0), fi: fmt(ps.fiber || 0) })) + '</strong><br>' +
-          esc(t('per100_line', { kcal: Math.round(n.per100.kcal || 0) })) + '</p>'
+            c: fmt(ps.carbs || 0), f: fmt(ps.fat || 0), fi: fmt(ps.fiber || 0) })) + '</strong>' +
+          kc('<br>' + esc(t('per100_line', { kcal: Math.round(n.per100.kcal || 0) }))) + '</p>'
         : '<p class="hint" id="recSum">' + esc(t('recipe_needs')) + '</p>') +
       '<div class="btn-row"><button class="btn" type="button" id="recSave"' + (r.ingredients.length ? '' : ' disabled') + '>' +
       esc(t('save')) + '</button><button class="btn ghost" type="button" id="recCancel">' + esc(t('cancel')) + '</button></div></div>';
@@ -698,7 +724,7 @@
       box.hidden = !hits.length;
       box.innerHTML = hits.map(function (f) {
         return '<button type="button" data-ing-add="' + esc(f.slug) + '">' + esc(f.name) +
-          '<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span></button>';
+          kc('<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span>') + '</button>';
       }).join('');
       box.querySelectorAll('[data-ing-add]').forEach(function (b) {
         b.addEventListener('click', function () {
@@ -826,7 +852,7 @@
       (p.image ? '<img src="' + esc(p.image) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '') +
       '<div><strong>' + esc(p.name) + '</strong>' + (p.brand ? '<span class="dim"> · ' + esc(p.brand) + '</span>' : '') +
       '<p class="hint" style="margin:2px 0 0">' + esc(t('per_100')) + ':</p>' +
-      '<ul class="product-facts">' + row('kcal', 'kcal') + row('protein', 'g') + row('carbs', 'g') + row('sugar', 'g') +
+      '<ul class="product-facts">' + kc(row('kcal', 'kcal')) + row('protein', 'g') + row('carbs', 'g') + row('sugar', 'g') +
       row('fat', 'g') + row('satfat', 'g') + row('fiber', 'g') + row('sodium', 'mg') + '</ul></div></div>' +
       issues.map(function (c) {
         return '<div class="note ' + (c.level === 'stop' ? 'danger' : 'warn') + '"><p>' + esc(c.text) + '</p></div>';
@@ -843,8 +869,8 @@
           '<div class="field"><label for="scanGrams">' + esc(t('amount_g')) + '</label>' +
           '<input id="scanGrams" type="number" min="1" max="5000" step="1" value="' + esc(Math.round(grams)) + '"></div>' +
           '<div class="field"><label for="scanMeal">' + esc(t('meal')) + '</label>' + mealSelect('scanMeal', currentMeal()) + '</div>' +
-          '<div class="field"><label>&nbsp;</label><span class="pick-kcal" id="scanKcal">' +
-          Math.round((p.per100.kcal || 0) * grams / 100) + ' kcal</span></div></div>' +
+          kc('<div class="field"><label>&nbsp;</label><span class="pick-kcal" id="scanKcal">' +
+          Math.round((p.per100.kcal || 0) * grams / 100) + ' kcal</span></div>') + '</div>' +
           '<div class="btn-row"><button class="btn" type="button" id="scanAdd">' + esc(t('add_to_log')) + '</button>' + cancel + '</div>'
         : '<p>' + esc(t('no_energy')) + '</p><div class="btn-row"><button class="btn" type="button" data-scan-manual>' +
           esc(t('manual_entry')) + '</button>' + cancel + '</div>') +
@@ -872,7 +898,8 @@
     if (g) {
       g.addEventListener('input', function () {
         var p = logState.scan.product;
-        document.getElementById('scanKcal').textContent = Math.round((p.per100.kcal || 0) * (Number(g.value) || 0) / 100) + ' kcal';
+        var sk = document.getElementById('scanKcal');
+        if (sk) sk.textContent = Math.round((p.per100.kcal || 0) * (Number(g.value) || 0) / 100) + ' kcal';
       });
     }
     var add = document.getElementById('scanAdd');
@@ -942,6 +969,7 @@
       '<h2 class="section">' + esc(t('eaten_on', {
         day: date >= Tracker.shift(Tracker.today(), -1) ? dayLabel(date).toLowerCase() : dayLabel(date)
       })) + '</h2>' +
+      sameAsYesterday(date, entries) +
       (entries.length
         ? Tracker.MEALS.map(function (meal) { return mealBlock(meal, entries, date); }).join('')
         : '<p class="empty" style="padding:24px 0">' + esc(t('log_empty')) + '</p>') +
@@ -983,6 +1011,12 @@
         ' <a href="' + FIM + '#/you">' + esc(t('profile_title')) + ' &rarr;</a></p>';
     }
 
+    if (!showKcal()) {
+      // No energy at all: the macros, and how much of the day is still a guess.
+      return '<div class="card pad log-summary">' +
+        '<div class="macro-row">' + Tracker.MACROS.filter(function (k) { return k !== 'kcal'; }).map(macro).join('') + '</div>' +
+        (totals.estKcal >= 5 ? '<p class="hint">' + esc(t('est_share_nokcal')) + '</p>' : '') + '</div>';
+    }
     return '<div class="card pad log-summary">' +
       '<div class="macro-row">' + Tracker.MACROS.map(macro).join('') + '</div>' + energy +
       (totals.estKcal >= 5
@@ -1028,9 +1062,8 @@
       (ref.personal ? '' : ' <a href="' + FIM + '#/you">' + esc(t('profile_title')) + ' &rarr;</a>') +
       '</p>' +
       (totals.partialCount
-        ? '<div class="note warn"><p>' + esc(t(totals.partialCount === 1 ? 'nutrients_partial_one' : 'nutrients_partial', {
-            n: totals.partialCount, kcal: Math.round(totals.partialKcal)
-          })) + '</p></div>'
+        ? '<div class="note warn"><p>' + esc(t((totals.partialCount === 1 ? 'nutrients_partial_one' : 'nutrients_partial') +
+            (showKcal() ? '' : '_nokcal'), { n: totals.partialCount, kcal: Math.round(totals.partialKcal) })) + '</p></div>'
         : '') +
       '<div class="dri-grid">' + table('Vitamins', VITAMINS) + table('Minerals', MINERALS) + '</div>' +
       '<p class="hint">' + esc(t('ul_food_note')) + '</p>';
@@ -1041,10 +1074,10 @@
     if (!list.length) return '';
     var lo = 0, hi = 0;
     list.forEach(function (e) { var r = Tracker.kcalRange(e); lo += r[0]; hi += r[1]; });
-    var saving = logState.savingMeal === meal;
+    var saving = logState.savingMeal === meal, copying = logState.copying === meal;
     return '<div class="card pad log-meal">' +
       '<div class="log-meal-head"><h3>' + esc(mealLabel(meal)) + '</h3>' +
-      '<span class="dim">' + esc(kcalText(lo, hi)) + ' kcal</span></div>' +
+      kc('<span class="dim">' + esc(kcalText(lo, hi)) + ' kcal</span>') + '</div>' +
       '<ul class="log-list">' + list.map(function (e) { return entryRow(e, date); }).join('') +
       '</ul>' +
       (window.Library
@@ -1056,7 +1089,41 @@
             : '<button class="btn ghost small save-meal-btn" type="button" data-save-meal="' + meal + '">' +
               esc(t('save_as_meal')) + '</button>')
         : '') +
+      (copying
+        ? '<div class="measure-row copy-meal"><label for="copyDate">' + esc(t('day_label')) + '</label>' +
+          '<input id="copyDate" type="date" max="' + esc(Tracker.today()) + '" value="' +
+          esc(date === Tracker.today() ? Tracker.today() : Tracker.shift(date, 1)) + '">' +
+          mealSelect('copyMeal', meal) +
+          '<button class="btn small" type="button" data-copy-go="' + meal + '">' + esc(t('copy')) + '</button>' +
+          '<button class="btn ghost small" type="button" data-copy-cancel>' + esc(t('cancel')) + '</button></div>'
+        : (saving ? '' : '<button class="btn ghost small save-meal-btn" type="button" data-copy-meal="' + meal + '">' +
+          esc(t('copy_meal')) + '</button>')) +
       '</div>';
+  }
+
+  /** "Same as yesterday's breakfast" for each meal yesterday had and this day does not. */
+  function sameAsYesterday(date, entries) {
+    var prev = Tracker.day(Tracker.shift(date, -1));
+    var meals = Tracker.MEALS.filter(function (m) {
+      return prev.some(function (e) { return e.meal === m; }) && !entries.some(function (e) { return e.meal === m; });
+    });
+    if (!meals.length) return '';
+    return '<div class="chips same-yesterday">' + meals.map(function (m) {
+      return '<button class="chip" type="button" data-same="' + m + '">' +
+        esc(t('same_as_yesterday', { meal: mealLabel(m).toLowerCase() })) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  /** Rename and move, for one logged entry. */
+  function entryTools(e) {
+    return '<div class="entry-tools">' +
+      '<div class="measure-row"><label for="rn-' + esc(e.id) + '">' + esc(t('name_label')) + '</label>' +
+      '<input id="rn-' + esc(e.id) + '" type="text" maxlength="120" value="' + esc(e.name) + '">' +
+      '<button class="btn small" type="button" data-rename="' + esc(e.id) + '">' + esc(t('rename')) + '</button></div>' +
+      '<div class="measure-row"><label for="mvd-' + esc(e.id) + '">' + esc(t('move_to')) + '</label>' +
+      '<input id="mvd-' + esc(e.id) + '" type="date" max="' + esc(Tracker.today()) + '" value="' + esc(logState.date) + '">' +
+      mealSelect('mvm-' + e.id, e.meal) +
+      '<button class="btn small" type="button" data-move="' + esc(e.id) + '">' + esc(t('move')) + '</button></div></div>';
   }
 
   function entryRow(e) {
@@ -1092,9 +1159,12 @@
         : '<span class="l-amt"><input type="number" min="1" max="5000" step="1" ' +
           'class="amt" data-entry="' + esc(e.id) + '" value="' + esc(Math.round(e.grams)) +
           '" aria-label="' + esc(t('amount_g') + ', ' + e.name) + '"> g</span>') +
-      '<span class="l-kcal">' + esc(kcalText(r[0], r[1])) + ' kcal</span>' +
+      kc('<span class="l-kcal">' + esc(kcalText(r[0], r[1])) + ' kcal</span>') +
+      '<button class="chip" type="button" data-edit-entry="' + esc(e.id) + '" aria-expanded="' +
+      (logState.editing === e.id) + '" aria-label="' + esc(t('edit_entry') + ' ' + e.name) + '">' + esc(t('edit_entry')) + '</button>' +
       '<button class="chip" type="button" data-del="' + esc(e.id) + '" aria-label="' +
       esc(t('remove') + ' ' + e.name) + '">&times;</button>' +
+      (logState.editing === e.id ? entryTools(e) : '') +
       (!e.fixed && (est || open)
         ? '<div class="l-measure">' + measurePanel('entry', e.id, food, e.grams, open) +
           (est && e.photoId ? platePanel('entry', e.photoId, e.plateAssumed) : '') + '</div>'
@@ -1130,7 +1200,7 @@
     return '<div class="pick-panel">' +
       foodPhoto(food) +
       '<div class="pick-head"><strong>' + esc(food.name) + '</strong> ' +
-      '<span class="dim">' + fmt(food.nutrients.kcal) + ' kcal / 100 g</span> ' +
+      kc('<span class="dim">' + fmt(food.nutrients.kcal) + ' kcal / 100 g</span> ') +
       '<a class="dim" href="' + esc(fimFood(food.slug)) + '">' + esc(t('on_fim')) + ' &rarr;</a></div>' +
       (excluded ? '<p class="hint warn-text">' + esc(t('excluded_warning')) + '</p>' : '') +
       '<div class="chips" style="margin:10px 0">' + opts.map(function (o) {
@@ -1144,8 +1214,8 @@
       esc(Math.round(grams)) + '"></div>' +
       '<div class="field"><label for="pickMeal">' + esc(t('meal')) + '</label>' +
       mealSelect('pickMeal', currentMeal()) + '</div>' +
-      '<div class="field"><label>&nbsp;</label><span class="pick-kcal" id="pickKcal">' +
-      Math.round(food.nutrients.kcal * grams / 100) + ' kcal</span></div></div>' +
+      kc('<div class="field"><label>&nbsp;</label><span class="pick-kcal" id="pickKcal">' +
+      Math.round(food.nutrients.kcal * grams / 100) + ' kcal</span></div>') + '</div>' +
       '<div class="btn-row"><button class="btn" type="button" id="pickAdd">' +
       esc(t('add_to_log')) + '</button>' +
       '<button class="btn ghost" type="button" id="pickCancel">' + esc(t('cancel')) +
@@ -1202,7 +1272,7 @@
     bindLibraryChips();
     main.querySelectorAll('[data-save-meal]').forEach(function (b) {
       b.addEventListener('click', function () {
-        logState.savingMeal = b.dataset.saveMeal;
+        logState.savingMeal = b.dataset.saveMeal; logState.copying = null;
         render();
         var i = document.getElementById('saveMealName');
         if (i) { i.focus(); i.select(); }
@@ -1253,7 +1323,7 @@
       suggest.hidden = !hits.length;
       suggest.innerHTML = hits.map(function (f) {
         return '<button type="button" data-pick="' + esc(f.slug) + '">' + esc(f.name) +
-          '<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span></button>';
+          kc('<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span>') + '</button>';
       }).join('');
       suggest.querySelectorAll('[data-pick]').forEach(function (b) {
         b.addEventListener('click', function () {
@@ -1277,8 +1347,8 @@
     if (pg) {
       pg.addEventListener('input', function () {
         var food = FOOD_BY_SLUG[logState.pick];
-        document.getElementById('pickKcal').textContent =
-          Math.round(food.nutrients.kcal * (Number(pg.value) || 0) / 100) + ' kcal';
+        var pk = document.getElementById('pickKcal');
+        if (pk) pk.textContent = Math.round(food.nutrients.kcal * (Number(pg.value) || 0) / 100) + ' kcal';
       });
       pg.addEventListener('keydown', function (ev) {
         if (ev.key === 'Enter') document.getElementById('pickAdd').click();
@@ -1344,6 +1414,54 @@
     main.querySelectorAll('[data-del]').forEach(function (b) {
       b.addEventListener('click', function () {
         Tracker.remove(logState.date, b.dataset.del);
+        render();
+      });
+    });
+    main.querySelectorAll('[data-edit-entry]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        logState.editing = logState.editing === b.dataset.editEntry ? null : b.dataset.editEntry;
+        render();
+      });
+    });
+    main.querySelectorAll('[data-rename]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.dataset.rename;
+        Tracker.rename(logState.date, id, document.getElementById('rn-' + id).value);
+        logState.editing = null;
+        render();
+      });
+    });
+    main.querySelectorAll('[data-move]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var id = b.dataset.move;
+        var to = document.getElementById('mvd-' + id).value, meal = document.getElementById('mvm-' + id).value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(to) || to > Tracker.today()) return;
+        if (Tracker.move(logState.date, id, to, meal)) {
+          if (to !== logState.date) logState.notice = t('moved_to', { day: dayLabel(to).toLowerCase() });
+        }
+        logState.editing = null;
+        render();
+      });
+    });
+    main.querySelectorAll('[data-same]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        Tracker.copyMeal(Tracker.shift(logState.date, -1), b.dataset.same, logState.date, b.dataset.same);
+        render();
+      });
+    });
+    main.querySelectorAll('[data-copy-meal]').forEach(function (b) {
+      b.addEventListener('click', function () { logState.copying = b.dataset.copyMeal; logState.savingMeal = null; render(); });
+    });
+    main.querySelectorAll('[data-copy-cancel]').forEach(function (b) {
+      b.addEventListener('click', function () { logState.copying = null; render(); });
+    });
+    main.querySelectorAll('[data-copy-go]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var to = document.getElementById('copyDate').value, meal = document.getElementById('copyMeal').value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(to) || to > Tracker.today()) return;
+        var n = Tracker.copyMeal(logState.date, b.dataset.copyGo, to, meal);
+        logState.copying = null;
+        logState.notice = t('copied_n', { n: n, day: dayLabel(to).toLowerCase() });
         render();
       });
     });
@@ -1893,8 +2011,8 @@
       '<strong>' + esc(t('snap_review')) + '</strong>' +
       '<div class="photo-row" style="margin-top:10px">' +
       (snap.dataUrl ? '<img class="photo-thumb" src="' + esc(snap.dataUrl) + '" alt="">' : '') +
-      '<div><div class="photo-total">' + esc(kcalText(lo, hi)) + ' <span class="u">kcal</span></div>' +
-      '<p class="hint" style="margin:2px 0 0">' + esc(t('snap_best_guess', { n: Math.round(mid) })) +
+      '<div>' + kc('<div class="photo-total">' + esc(kcalText(lo, hi)) + ' <span class="u">kcal</span></div>') +
+      '<p class="hint" style="margin:2px 0 0">' + kc(esc(t('snap_best_guess', { n: Math.round(mid) }))) +
       (nIn ? ' ' + esc(t('snap_measured_share', { m: nMeasured, n: nIn })) : '') + '</p>' +
       (snap.notes ? '<p class="hint" style="margin:6px 0 0">' + esc(snap.notes) + '</p>' : '') +
       (snap.model ? '<p class="hint" style="margin:6px 0 0">' + esc(t('read_by', { model: modelName(snap.model) })) +
@@ -1955,16 +2073,16 @@
       it.candidates.map(function (s) {
         var f = FOOD_BY_SLUG[s];
         return '<option value="' + esc(s) + '"' + (s === it.slug ? ' selected' : '') + '>' +
-          esc(f.name) + ' — ' + fmt(f.nutrients.kcal) + ' kcal/100 g</option>';
+          esc(f.name) + kc(' — ' + fmt(f.nutrients.kcal) + ' kcal/100 g') + '</option>';
       }).join('') +
       '<option value=""' + (it.slug ? '' : ' selected') + '>' +
-      esc(t('model_estimate', { n: it.kcalPer100 ? Math.round(it.kcalPer100) : '?' })) +
+      esc(showKcal() ? t('model_estimate', { n: it.kcalPer100 ? Math.round(it.kcalPer100) : '?' }) : t('model_estimate_nokcal')) +
       '</option></select>' +
       '<div class="ingredient-add p-search"><input class="search" type="search" data-psearch="' + i +
       '" placeholder="' + esc(t('change_match')) + '" aria-label="' + esc(t('change_match') + ': ' + it.name) +
       '" autocomplete="off"><div class="suggest" data-psuggest="' + i + '" hidden></div></div>' +
       (mismatch
-        ? '<p class="hint warn-text">' + esc(t('snap_mismatch', {
+        ? '<p class="hint warn-text">' + esc(t(showKcal() ? 'snap_mismatch' : 'snap_mismatch_nokcal', {
             usda: Math.round(per100), model: Math.round(it.kcalPer100)
           })) + '</p>'
         : '') +
@@ -1978,8 +2096,8 @@
       (!it.measured && it.gramsHigh > it.gramsLow
         ? '<span class="l-sub">' + esc(it.gramsLow + '–' + it.gramsHigh + ' g') + '</span>'
         : '') + '</div>' +
-      '<div class="p-kcal">' + esc(kcalText(per100 * it.gramsLow / 100, per100 * it.gramsHigh / 100)) +
-      ' kcal</div></li>';
+      kc('<div class="p-kcal">' + esc(kcalText(per100 * it.gramsLow / 100, per100 * it.gramsHigh / 100)) +
+      ' kcal</div>') + '</li>';
   }
 
   function setMeasured(it, grams, label) {
@@ -2107,7 +2225,7 @@
         box.hidden = !hits.length;
         box.innerHTML = hits.map(function (f) {
           return '<button type="button" data-pset="' + esc(f.slug) + '">' + esc(f.name) +
-            '<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span></button>';
+            kc('<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span>') + '</button>';
         }).join('');
         box.querySelectorAll('[data-pset]').forEach(function (b) {
           b.addEventListener('click', function () {
@@ -2218,7 +2336,7 @@
 
     main.innerHTML =
       '<div class="page-head"><h1>' + esc(t('history_title')) + '</h1>' +
-      '<p>' + esc(t('history_lede')) + '</p></div>' +
+      '<p>' + esc(t(showKcal() ? 'history_lede' : 'history_lede_nokcal')) + '</p></div>' +
       '<div class="chips" role="group" style="margin-bottom:14px">' + [7, 30].map(function (d) {
         return '<button class="chip" type="button" data-range="' + d + '" aria-pressed="' +
           (d === n) + '">' + esc(t('days_' + d)) + '</button>';
@@ -2230,9 +2348,9 @@
         ? '<h2 class="section">' + esc(t('days_list')) + '</h2><div class="card pad"><ul class="log-list">' +
           logged.slice().reverse().map(function (d) {
             return '<li><span class="l-name"><a href="#/today/' + esc(d.date) + '">' + esc(dayLabel(d.date)) +
-              '</a><span class="l-sub">' + esc(t('entries_n', { n: d.count })) + ' · ' +
+              '</a><span class="l-sub">' + esc(t(d.count === 1 ? 'entries_one' : 'entries_n', { n: d.count })) + ' · ' +
               fmt(d.protein) + ' g protein · ' + fmt(d.fiber) + ' g fibre</span></span>' +
-              '<span class="l-kcal">' + esc(kcalText(d.kcalLow, d.kcalHigh)) + ' kcal</span></li>';
+              kc('<span class="l-kcal">' + esc(kcalText(d.kcalLow, d.kcalHigh)) + ' kcal</span>') + '</li>';
           }).join('') + '</ul></div>' +
           nutrientPanel(sum, referenceSet(), Profile.get(), logged.length, t('avg_title'))
         : '') +
@@ -2279,7 +2397,8 @@
           return '<p class="warn-text">' + esc(t('gaps_over', {
             name: nutrientLabel(o.key), ul: amountText(o.ul, o.key), n: o.days })) + '</p>';
         }).join('') +
-        (a.partialShare > 0.1 ? '<p class="hint">' + esc(t('gaps_partial', { pct: Math.round(a.partialShare * 100) })) + '</p>' : '') +
+        (a.partialShare > 0.1 ? '<p class="hint">' + esc(showKcal() ? t('gaps_partial', { pct: Math.round(a.partialShare * 100) })
+          : t('gaps_partial_nokcal')) + '</p>' : '') +
         (ref.personal ? '' : '<p class="hint">' + esc(t('gaps_generic')) + ' <a href="' + FIM + '#/you">' +
           esc(t('profile_title')) + ' &rarr;</a></p>');
     }
@@ -2306,7 +2425,7 @@
     var q = { measured: 0, photo: 0, partial: 0 }, total = 0;
     days.forEach(function (d) {
       Tracker.day(d.date).forEach(function (e) {
-        var k = Tracker.nutrientsOf(e).kcal || 0;
+        var k = showKcal() ? (Tracker.nutrientsOf(e).kcal || 0) : 1;   // shares of entries when energy is hidden
         total += k;
         if (!Tracker.isComplete(e)) q.partial += k;
         else if (Tracker.isEstimate(e)) q.photo += k;
@@ -2335,16 +2454,18 @@
       (prof ? '<p>' + esc(t('report_profile')) + ': ' + esc(prof.age + ' · ' + prof.sex + ' · ' + fmt(prof.heightCm) + ' cm · ' +
         fmt(prof.weightKg) + ' kg') + '</p>' : '') +
       '<p>' + esc(t('report_diet')) + ': ' + esc(dietSummary() || t('none')) + '</p>' +
-      (logged.length ? '<p>' + esc(t('report_avg_energy', { n: Math.round(avg('kcal')) })) +
+      (logged.length && showKcal() ? '<p>' + esc(t('report_avg_energy', { n: Math.round(avg('kcal')) })) +
         (target ? ' ' + esc(t('report_need', { n: target })) : '') + '</p>' : '') + '</div>' +
 
       '<div class="card pad report-section"><h2>' + esc(t('report_macros')) + '</h2>' +
-      '<table class="dri-table"><tbody>' + ['kcal', 'protein', 'carbs', 'sugar', 'fat', 'satfat', 'fiber', 'sodium'].map(function (k) {
+      '<table class="dri-table"><tbody>' + ['kcal', 'protein', 'carbs', 'sugar', 'fat', 'satfat', 'fiber', 'sodium'].filter(function (k) {
+        return k !== 'kcal' || showKcal();
+      }).map(function (k) {
         return '<tr><th scope="row">' + esc(nutrientLabel(k)) + '</th><td class="num">' + fmt(avg(k)) + ' ' +
           esc(k === 'kcal' ? 'kcal' : nutrientUnit(k)) + '</td></tr>';
       }).join('') + '</tbody></table></div>' +
 
-      '<div class="card pad report-section"><h2>' + esc(t('report_energy')) + '</h2>' + chart(days, end, target) + '</div>' +
+      '<div class="card pad report-section"><h2>' + esc(t(showKcal() ? 'report_energy' : 'report_days')) + '</h2>' + chart(days, end, target) + '</div>' +
 
       (logged.length ? '<div class="report-section">' + nutrientPanel(sum, ref, prof, logged.length, t('avg_title')) + '</div>' : '') +
 
@@ -2352,8 +2473,8 @@
       '<table class="dri-table"><tbody>' +
       '<tr><th scope="row">' + esc(t('q_measured')) + '</th><td class="num">' + share(q.measured) + '</td></tr>' +
       '<tr><th scope="row">' + esc(t('q_photo')) + '</th><td class="num">' + share(q.photo) + '</td></tr>' +
-      '<tr><th scope="row">' + esc(t('q_partial')) + '</th><td class="num">' + share(q.partial) + '</td></tr>' +
-      '</tbody></table></div>' +
+      '<tr><th scope="row">' + esc(t(showKcal() ? 'q_partial' : 'q_partial_nokcal')) + '</th><td class="num">' + share(q.partial) + '</td></tr>' +
+      '</tbody></table>' + (showKcal() ? '' : '<p class="hint">' + esc(t('report_by_entries')) + '</p>') + '</div>' +
 
       '<div class="card pad report-section"><h2>' + esc(t('report_notes')) + '</h2>' +
       '<textarea id="reportNotes" class="no-print" rows="4" maxlength="2000" placeholder="' +
@@ -2376,6 +2497,7 @@
   // Plain HTML bars rather than SVG, so labels stay at reading size on a
   // phone. Colours come from the theme tokens.
   function chart(days, sel, target) {
+    if (!showKcal()) return dayStrip(days, sel);
     var dense = days.length > 10;
     var max = Math.max.apply(null, days.map(function (d) { return d.kcal; }).concat([target || 0, 1]));
     var pct = function (v) { return (v / max * 100).toFixed(1) + '%'; };
@@ -2404,6 +2526,23 @@
       '<p class="hint" style="margin:8px 0 0">' +
       (logged.length ? esc(t('week_avg', { n: Math.round(avg), days: logged.length })) : esc(t('week_none'))) +
       (target ? ' ' + esc(t('week_line', { n: target })) : '') + '</p>';
+  }
+
+  /** With calories hidden: which days were logged, and nothing about energy. */
+  function dayStrip(days, sel) {
+    var dense = days.length > 10;
+    var logged = days.filter(function (d) { return d.count; }).length;
+    return '<div class="day-strip' + (dense ? ' dense' : '') + '" style="grid-template-columns:repeat(' + days.length + ',1fr)">' +
+      days.map(function (d, i) {
+        var p = d.date.split('-').map(Number), dt = new Date(p[0], p[1] - 1, p[2], 12);
+        var lab = dense ? (i % 5 === days.length % 5 ? String(dt.getDate()) : '') : dt.toLocaleDateString('en-GB', { weekday: 'short' });
+        var title = d.count ? t('strip_day_on', { day: dayLabel(d.date), n: t(d.count === 1 ? 'entries_one' : 'entries_n', { n: d.count }) })
+                            : t('strip_day_off', { day: dayLabel(d.date) });
+        return '<a class="ds-day' + (d.count ? ' on' : '') + (d.date === sel ? ' sel' : '') + '" href="#/today/' + d.date +
+          '" title="' + esc(title) + '" aria-label="' + esc(title) + '"><span class="ds-dot"></span>' +
+          '<span class="wk-day">' + esc(lab) + '&nbsp;</span></a>';
+      }).join('') + '</div>' +
+      '<p class="hint" style="margin:8px 0 0">' + esc(t('strip_avg', { days: logged, n: days.length })) + '</p>';
   }
 
   // ======================================================================
@@ -2525,6 +2664,10 @@
       '<div class="btn-row"><a class="btn ghost" href="' + FIM + '#/you">' + esc(t('edit_profile')) + ' &rarr;</a></div></div>' +
 
       dietCard() +
+      '<div class="card pad settings-block"><h2>' + esc(t('hide_kcal_title')) + '</h2>' +
+      '<p class="hint">' + esc(t('hide_kcal_lede')) + '</p>' +
+      '<label class="toggle-row"><input type="checkbox" id="hideKcal"' + (showKcal() ? '' : ' checked') + '> ' +
+      esc(t('hide_kcal_label')) + '</label></div>' +
       installCard() + remindersCard() +
 
       '<div class="card pad settings-block"><h2>' + esc(t('theme')) + '</h2>' +
@@ -2537,7 +2680,12 @@
       '<div class="btn-row"><button class="btn" type="button" id="exportBtn">' + esc(t('export_btn')) + '</button>' +
       '<label class="btn ghost file-btn">' + esc(t('import_btn')) +
       '<input type="file" accept="application/json,.json" id="importIn" hidden></label>' +
-      '<button class="btn danger" type="button" id="clearBtn">' + esc(t('clear_btn')) + '</button></div></div>';
+      '<button class="btn danger" type="button" id="clearBtn">' + esc(t('clear_btn')) + '</button></div>' +
+      (window.Csv
+        ? '<p class="hint" style="margin-top:14px">' + esc(t('csv_hint')) + '</p>' +
+          '<div class="btn-row"><button class="btn ghost" type="button" id="csvEntries">' + esc(t('csv_entries')) + '</button>' +
+          '<button class="btn ghost" type="button" id="csvDays">' + esc(t('csv_days')) + '</button></div>'
+        : '') + '</div>';
 
     logState.notice = '';
     bindLocalCards();
@@ -2552,6 +2700,13 @@
     });
     var del = document.getElementById('keyDel');
     if (del) del.addEventListener('click', function () { Gemini.setKey(''); render(); });
+    document.getElementById('hideKcal').addEventListener('change', function (ev) {
+      try {
+        if (ev.target.checked) localStorage.setItem(HIDE_KCAL, '1'); else localStorage.removeItem(HIDE_KCAL);
+      } catch (e) { /* private mode: this visit only would need state; keep it simple */ }
+      if (window.Sync && Sync.settingsChanged) Sync.settingsChanged();
+      render();
+    });
     document.getElementById('themeSel').addEventListener('change', function (ev) {
       Prefs.set('theme', ev.target.value);
     });
@@ -2564,6 +2719,14 @@
       a.click();
       setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 0);
     });
+    if (window.Csv) {
+      document.getElementById('csvEntries').addEventListener('click', function () {
+        Csv.download(Csv.entries(Tracker), 'food-log-entries-' + Tracker.today() + '.csv');
+      });
+      document.getElementById('csvDays').addEventListener('click', function () {
+        Csv.download(Csv.days(Tracker), 'food-log-days-' + Tracker.today() + '.csv');
+      });
+    }
     document.getElementById('importIn').addEventListener('change', function (ev) {
       var f = ev.target.files && ev.target.files[0];
       if (!f) return;
@@ -2645,6 +2808,8 @@
   if (Tracker.importedFrom()) logState.notice = t('imported_legacy');
 
   window.addEventListener('hashchange', onHash);
+  // Hide calories switched on another device and applied by sync.
+  window.addEventListener('foodlog:display', function () { render(); });
   if (window.PWA && PWA.onChange) {
     PWA.onChange(function () {
       if (route.name === 'snap' && snap.status !== 'busy') render();

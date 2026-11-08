@@ -58,6 +58,7 @@ var SHELL = [
   'js/local-model.js',
   'js/library.js',
   'js/gaps.js',
+  'js/csv.js',
   'js/barcode.js',
   'js/pwa.js',
   'js/app.js',

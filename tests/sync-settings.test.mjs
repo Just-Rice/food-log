@@ -101,5 +101,16 @@ check(cloud.settings.profile && cloud.settings.diet.diet === 'vegan', 'an empty 
 await C.S.signOut();
 check(C.P.get('diet') === 'vegan' && !!C.Prof.get(), 'sign-out leaves local settings as they are');
 
+// 7. "Hide calories" follows the account to the other devices.
+A.store['foodlog.hideKcal'] = '1';
+A.S.settingsChanged();
+await wait(2300); await tick();
+check(cloud.settings.display && cloud.settings.display.hideKcal === true, 'hide calories is pushed with the settings');
+check(B2.store['foodlog.hideKcal'] === '1', 'and switched on on the other device');
+delete B2.store['foodlog.hideKcal'];
+B2.S.settingsChanged();
+await wait(2300); await tick();
+check(!A.store['foodlog.hideKcal'] && cloud.settings.display.hideKcal === false, 'switching it off on one device switches it off on the others');
+
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);
