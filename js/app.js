@@ -28,7 +28,21 @@
   // English only. Food is Medicine's translations cover its own pages; this
   // site's wording is small enough to keep here until it needs the same.
   var S = {
-    nav_today: 'Today', nav_snap: 'Snap a meal', nav_history: 'History', nav_settings: 'Settings',
+    nav_today: 'Today', nav_snap: 'Snap a meal', nav_history: 'History', nav_settings: 'Settings', nav_meals: 'Meals',
+    meals_title: 'Meals and recipes',
+    meals_lede: 'Save a meal you eat often and log it again in one tap, or build a recipe from its ingredients: its nutrition per serving is worked out from the USDA figures, vitamins and minerals included.',
+    saved_meals: 'Saved meals', recipes_title: 'Recipes', new_recipe: 'New recipe',
+    no_meals: 'No saved meals yet. On the Today page, “Save as a meal” keeps any meal you have logged.',
+    no_recipes: 'No recipes yet.',
+    log_it: 'Log', log_serving: 'Log 1 serving', edit: 'Edit', del: 'Delete', save: 'Save',
+    delete_confirm: 'Delete “{name}”?',
+    save_as_meal: 'Save as a meal', meal_name: 'Name for this meal', saved_meal_notice: 'Saved “{name}”. It is under My meals when you add food.',
+    my_meals: 'My meals and recipes',
+    recipe_name: 'Recipe name', ingredients: 'Ingredients', add_ingredient: 'Add an ingredient…',
+    cooked_weight: 'Cooked weight (g, optional)', cooked_hint: 'Weigh the finished pot if you can: cooking changes weight, mostly water.',
+    servings: 'Servings', per_serving_line: 'Per serving ({g} g): {kcal} kcal · {p} g protein · {c} g carbohydrate · {f} g fat · {fi} g fibre',
+    per100_line: 'Per 100 g: {kcal} kcal', recipe_tag: 'recipe', logged_notice: 'Logged “{name}”.',
+    recipe_needs: 'Add at least one ingredient.',
     nav_fim: 'Food is Medicine',
     today: 'Today', yesterday: 'Yesterday',
     previous_day: 'Previous day', next_day: 'Next day', choose_day: 'Choose a day',
@@ -371,7 +385,7 @@
   // ======================================================================
   // State
   // ======================================================================
-  var logState = { date: null, pick: null, pickGrams: null, meal: null, measuring: null, notice: '', scan: null };
+  var logState = { date: null, pick: null, pickGrams: null, meal: null, measuring: null, notice: '', scan: null, savingMeal: null };
   var snap = { status: null, hint: '' };
   var histState = { days: 7 };
 
@@ -447,6 +461,222 @@
     var n = Number(document.getElementById('mc-' + key).value);
     if (!u || !(n > 0)) return null;
     return { grams: u.grams * n, label: fmt(n) + ' × ' + u.label };
+  }
+
+  // ======================================================================
+  // Saved meals and recipes
+  // ======================================================================
+  var mealsState = { editing: null };
+
+  /** Log every item of a saved meal, as fresh entries. */
+  function logSavedMeal(m, date, meal) {
+    m.items.forEach(function (it) {
+      if (it.fixed) Tracker.add(date, { name: it.name, fixed: it.fixed, meal: meal });
+      else if (it.slug && FOOD_BY_SLUG[it.slug]) Tracker.add(date, { food: FOOD_BY_SLUG[it.slug], grams: it.grams, meal: meal });
+      else Tracker.add(date, { name: it.name, per100: it.per100, grams: it.grams, meal: meal,
+                               source: it.source === 'barcode' ? 'barcode' : 'food', barcode: it.barcode, brand: it.brand });
+    });
+  }
+
+  /** Log servings of a recipe as one entry carrying its computed figures. */
+  function logRecipe(r, date, meal, servings) {
+    var n = Library.nutrition(r);
+    Tracker.add(date, { name: r.name, per100: n.per100, grams: Math.round(n.servingGrams * (servings || 1)),
+                        meal: meal, source: 'recipe' });
+  }
+
+  function libraryChips() {
+    if (!window.Library || logState.pick || logState.scan) return '';
+    var meals = Library.meals(), recipes = Library.recipes();
+    if (!meals.length && !recipes.length) return '';
+    return '<div class="recent"><span class="label">' + esc(t('my_meals')) + '</span><div class="chips">' +
+      meals.slice(0, 8).map(function (m) {
+        return '<button class="chip" type="button" data-lib-meal="' + esc(m.id) + '">' + esc(m.name) + '</button>';
+      }).join('') +
+      recipes.slice(0, 8).map(function (r) {
+        return '<button class="chip" type="button" data-lib-recipe="' + esc(r.id) + '">' + esc(r.name) +
+          ' <span class="dim">' + esc(t('recipe_tag')) + '</span></button>';
+      }).join('') + '</div></div>';
+  }
+
+  function bindLibraryChips() {
+    main.querySelectorAll('[data-lib-meal]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var m = Library.get(b.dataset.libMeal);
+        if (!m) return;
+        logSavedMeal(m, logState.date || Tracker.today(), currentMeal());
+        logState.notice = t('logged_notice', { name: m.name });
+        render();
+      });
+    });
+    main.querySelectorAll('[data-lib-recipe]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var r = Library.get(b.dataset.libRecipe);
+        if (!r) return;
+        logRecipe(r, logState.date || Tracker.today(), currentMeal(), 1);
+        logState.notice = t('logged_notice', { name: r.name });
+        render();
+      });
+    });
+  }
+
+  function viewMeals() {
+    if (mealsState.editing) return viewRecipeEditor();
+    var meals = Library.meals(), recipes = Library.recipes();
+    main.innerHTML =
+      '<div class="page-head"><h1>' + esc(t('meals_title')) + '</h1><p>' + esc(t('meals_lede')) + '</p></div>' +
+      (logState.notice ? '<div class="note"><p>' + esc(logState.notice) + '</p></div>' : '') +
+      '<h2 class="section">' + esc(t('saved_meals')) + '</h2>' +
+      (meals.length
+        ? meals.map(function (m) {
+            var kcal = 0;
+            m.items.forEach(function (it) { kcal += it.fixed ? (it.fixed.kcal || 0) : it.per100.kcal * it.grams / 100; });
+            return '<div class="card pad lib-card"><div class="lib-head"><strong>' + esc(m.name) + '</strong>' +
+              '<span class="dim">' + Math.round(kcal) + ' kcal</span></div>' +
+              '<p class="hint">' + esc(m.items.map(function (it) {
+                return it.name + (it.grams ? ' ' + fmt(it.grams) + ' g' : '');
+              }).join(' · ')) + '</p>' +
+              '<div class="btn-row"><button class="btn small" type="button" data-log-meal="' + esc(m.id) + '">' + esc(t('log_it')) + '</button>' +
+              '<button class="btn ghost small" type="button" data-del-lib="' + esc(m.id) + '">' + esc(t('del')) + '</button></div></div>';
+          }).join('')
+        : '<p class="empty">' + esc(t('no_meals')) + '</p>') +
+      '<h2 class="section">' + esc(t('recipes_title')) + '</h2>' +
+      (recipes.length
+        ? recipes.map(function (r) {
+            var n = Library.nutrition(r);
+            return '<div class="card pad lib-card"><div class="lib-head"><strong>' + esc(r.name) + '</strong>' +
+              '<span class="dim">' + Math.round(n.perServing.kcal || 0) + ' kcal / serving</span></div>' +
+              '<p class="hint">' + esc(r.ingredients.map(function (it) { return it.name + ' ' + fmt(it.grams) + ' g'; }).join(' · ')) + '</p>' +
+              '<div class="btn-row"><button class="btn small" type="button" data-log-recipe="' + esc(r.id) + '">' + esc(t('log_serving')) + '</button>' +
+              '<button class="btn ghost small" type="button" data-edit-recipe="' + esc(r.id) + '">' + esc(t('edit')) + '</button>' +
+              '<button class="btn ghost small" type="button" data-del-lib="' + esc(r.id) + '">' + esc(t('del')) + '</button></div></div>';
+          }).join('')
+        : '<p class="empty">' + esc(t('no_recipes')) + '</p>') +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn" type="button" id="newRecipe">' + esc(t('new_recipe')) + '</button></div>';
+    logState.notice = '';
+
+    main.querySelectorAll('[data-log-meal]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var m = Library.get(b.dataset.logMeal);
+        logSavedMeal(m, Tracker.today(), Tracker.guessMeal());
+        logState.notice = t('logged_notice', { name: m.name });
+        render();
+      });
+    });
+    main.querySelectorAll('[data-log-recipe]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var r = Library.get(b.dataset.logRecipe);
+        logRecipe(r, Tracker.today(), Tracker.guessMeal(), 1);
+        logState.notice = t('logged_notice', { name: r.name });
+        render();
+      });
+    });
+    main.querySelectorAll('[data-edit-recipe]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        mealsState.editing = JSON.parse(JSON.stringify(Library.get(b.dataset.editRecipe)));
+        render();
+      });
+    });
+    main.querySelectorAll('[data-del-lib]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var x = Library.get(b.dataset.delLib);
+        if (x && window.confirm(t('delete_confirm', { name: x.name }))) { Library.remove(x.id); render(); }
+      });
+    });
+    document.getElementById('newRecipe').addEventListener('click', function () {
+      mealsState.editing = { name: '', ingredients: [], cookedGrams: null, servings: 4 };
+      render();
+    });
+  }
+
+  function viewRecipeEditor() {
+    var r = mealsState.editing;
+    var n = Library.nutrition(r);
+    var ps = n.perServing;
+    main.innerHTML =
+      '<div class="page-head"><h1>' + esc(r.id ? r.name : t('new_recipe')) + '</h1></div>' +
+      '<div class="card pad">' +
+      '<div class="field"><label for="recName">' + esc(t('recipe_name')) + '</label>' +
+      '<input id="recName" type="text" maxlength="80" value="' + esc(r.name) + '"></div>' +
+      '<h2 class="section" style="margin-top:16px">' + esc(t('ingredients')) + '</h2>' +
+      '<ul class="log-list">' + r.ingredients.map(function (it, i) {
+        return '<li><span class="l-name">' + esc(it.name) + '<span class="l-sub">' +
+          fmt(it.per100.kcal * it.grams / 100) + ' kcal</span></span>' +
+          '<span class="l-amt"><input type="number" min="1" max="5000" step="1" data-ing-g="' + i + '" value="' +
+          esc(Math.round(it.grams)) + '" aria-label="' + esc(t('amount_g') + ', ' + it.name) + '"> g</span>' +
+          '<button class="chip" type="button" data-ing-del="' + i + '" aria-label="' + esc(t('remove') + ' ' + it.name) + '">&times;</button></li>';
+      }).join('') + '</ul>' +
+      '<div class="ingredient-add" style="margin-top:10px">' +
+      '<input class="search" id="recSearch" type="search" placeholder="' + esc(t('add_ingredient')) +
+      '" autocomplete="off" aria-label="' + esc(t('add_ingredient')) + '">' +
+      '<div class="suggest" id="recSuggest" hidden></div></div>' +
+      '<div class="field-row" style="margin-top:14px">' +
+      '<div class="field"><label for="recCooked">' + esc(t('cooked_weight')) + '</label>' +
+      '<input id="recCooked" type="number" min="1" max="50000" step="1" value="' + esc(r.cookedGrams || '') + '"></div>' +
+      '<div class="field"><label for="recServings">' + esc(t('servings')) + '</label>' +
+      '<input id="recServings" type="number" min="1" max="100" step="1" value="' + esc(r.servings || 1) + '"></div></div>' +
+      '<p class="hint">' + esc(t('cooked_hint')) + '</p>' +
+      (r.ingredients.length
+        ? '<p class="recipe-sum" id="recSum"><strong>' + esc(t('per_serving_line', {
+            g: Math.round(n.servingGrams), kcal: Math.round(ps.kcal || 0), p: fmt(ps.protein || 0),
+            c: fmt(ps.carbs || 0), f: fmt(ps.fat || 0), fi: fmt(ps.fiber || 0) })) + '</strong><br>' +
+          esc(t('per100_line', { kcal: Math.round(n.per100.kcal || 0) })) + '</p>'
+        : '<p class="hint" id="recSum">' + esc(t('recipe_needs')) + '</p>') +
+      '<div class="btn-row"><button class="btn" type="button" id="recSave"' + (r.ingredients.length ? '' : ' disabled') + '>' +
+      esc(t('save')) + '</button><button class="btn ghost" type="button" id="recCancel">' + esc(t('cancel')) + '</button></div></div>';
+
+    function readFields() {
+      r.name = document.getElementById('recName').value;
+      r.cookedGrams = Number(document.getElementById('recCooked').value) || null;
+      r.servings = Math.max(1, Math.round(Number(document.getElementById('recServings').value) || 1));
+    }
+    ['recCooked', 'recServings'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', function () { readFields(); render(); });
+    });
+    main.querySelectorAll('[data-ing-g]').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        var g = Number(inp.value);
+        if (g > 0) r.ingredients[Number(inp.dataset.ingG)].grams = Math.min(5000, g);
+        readFields(); render();
+      });
+    });
+    main.querySelectorAll('[data-ing-del]').forEach(function (b) {
+      b.addEventListener('click', function () { r.ingredients.splice(Number(b.dataset.ingDel), 1); readFields(); render(); });
+    });
+    var search = document.getElementById('recSearch'), box = document.getElementById('recSuggest');
+    search.addEventListener('input', function () {
+      var q = search.value.trim().toLowerCase();
+      if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+      // Ingredients are often dry or raw -- flour, lentils, oil -- so plain
+      // relevance order, not the log's cooked-first order.
+      var hits = FOODS.filter(function (f) { return !Prefs.excludedReason(f) && haystack(f).indexOf(q) >= 0; })
+        .sort(function (a, b) { return relevance(b, q) - relevance(a, q) || a.name.length - b.name.length; }).slice(0, 10);
+      box.hidden = !hits.length;
+      box.innerHTML = hits.map(function (f) {
+        return '<button type="button" data-ing-add="' + esc(f.slug) + '">' + esc(f.name) +
+          '<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span></button>';
+      }).join('');
+      box.querySelectorAll('[data-ing-add]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var f = FOOD_BY_SLUG[b.dataset.ingAdd], per100 = {};
+          Tracker.TRACKED.forEach(function (k) { if (f.nutrients[k] != null) per100[k] = f.nutrients[k]; });
+          readFields();
+          r.ingredients.push({ slug: f.slug, name: f.name, grams: f.portion ? f.portion.grams : 100, per100: per100 });
+          render();
+          var s2 = document.getElementById('recSearch');
+          if (s2) s2.focus();
+        });
+      });
+    });
+    document.getElementById('recSave').addEventListener('click', function () {
+      readFields();
+      var saved = Library.saveRecipe(r);
+      if (!saved) return;
+      mealsState.editing = null;
+      logState.notice = t('saved_meal_notice', { name: saved.name }).replace(' It is under My meals when you add food.', '');
+      render();
+    });
+    document.getElementById('recCancel').addEventListener('click', function () { mealsState.editing = null; render(); });
   }
 
   // ======================================================================
@@ -662,7 +892,7 @@
       '<input class="search" id="logSearch" type="search" placeholder="' +
       esc(t('search_foods')) + '" autocomplete="off" aria-label="' + esc(t('search_foods')) + '">' +
       '<div class="suggest" id="logSuggest" hidden></div></div>' +
-      scanPanel() + pickPanel() + recentChips(date) + manualForm() +
+      scanPanel() + pickPanel() + recentChips(date) + libraryChips() + manualForm() +
       '</div></div>' +
 
       '<h2 class="section">' + esc(t('eaten_on', {
@@ -767,11 +997,22 @@
     if (!list.length) return '';
     var lo = 0, hi = 0;
     list.forEach(function (e) { var r = Tracker.kcalRange(e); lo += r[0]; hi += r[1]; });
+    var saving = logState.savingMeal === meal;
     return '<div class="card pad log-meal">' +
       '<div class="log-meal-head"><h3>' + esc(mealLabel(meal)) + '</h3>' +
       '<span class="dim">' + esc(kcalText(lo, hi)) + ' kcal</span></div>' +
       '<ul class="log-list">' + list.map(function (e) { return entryRow(e, date); }).join('') +
-      '</ul></div>';
+      '</ul>' +
+      (window.Library
+        ? (saving
+            ? '<div class="measure-row save-meal"><label for="saveMealName">' + esc(t('meal_name')) + '</label>' +
+              '<input id="saveMealName" type="text" maxlength="80" value="' + esc(mealLabel(meal)) + '">' +
+              '<button class="btn small" type="button" data-save-meal-go="' + meal + '">' + esc(t('save')) + '</button>' +
+              '<button class="btn ghost small" type="button" data-save-meal-cancel>' + esc(t('cancel')) + '</button></div>'
+            : '<button class="btn ghost small save-meal-btn" type="button" data-save-meal="' + meal + '">' +
+              esc(t('save_as_meal')) + '</button>')
+        : '') +
+      '</div>';
   }
 
   function entryRow(e) {
@@ -793,10 +1034,11 @@
       (e.measured ? ' <span class="tag measured-tag">' + esc(t('measured')) + '</span>' : '') +
       (e.source === 'manual' ? ' <span class="tag">' + esc(t('typed_in')) + '</span>' : '') +
       (e.source === 'barcode' ? ' <span class="tag">' + esc(t('from_label')) + '</span>' : '') +
+      (e.source === 'recipe' ? ' <span class="tag">' + esc(t('recipe_tag')) + '</span>' : '') +
       sub.map(function (s) { return '<span class="l-sub">' + esc(s) + '</span>'; }).join('') +
       // An unmatched photo item has only the model's energy guess; showing
       // "0 g protein" for it would be a claim, not a blank.
-      (e.per100 && !e.slug && e.source !== 'barcode'
+      (e.per100 && !e.slug && e.source !== 'barcode' && e.source !== 'recipe'
         ? '<span class="l-sub">' + esc(t('energy_only')) + '</span>'
         : '<span class="l-sub">' + fmt(n.protein) + ' g protein · ' + fmt(n.carbs) + ' g carbohydrate · ' +
           fmt(n.fat) + ' g fat</span>') +
@@ -913,6 +1155,32 @@
   }
 
   function bindToday() {
+    bindLibraryChips();
+    main.querySelectorAll('[data-save-meal]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        logState.savingMeal = b.dataset.saveMeal;
+        render();
+        var i = document.getElementById('saveMealName');
+        if (i) { i.focus(); i.select(); }
+      });
+    });
+    main.querySelectorAll('[data-save-meal-cancel]').forEach(function (b) {
+      b.addEventListener('click', function () { logState.savingMeal = null; render(); });
+    });
+    main.querySelectorAll('[data-save-meal-go]').forEach(function (b) {
+      function go() {
+        var meal = b.dataset.saveMealGo;
+        var name = document.getElementById('saveMealName').value.trim() || mealLabel(meal);
+        var entries = Tracker.day(logState.date).filter(function (e) { return e.meal === meal; });
+        var saved = Library.saveMeal(name, entries);
+        logState.savingMeal = null;
+        if (saved) logState.notice = t('saved_meal_notice', { name: saved.name });
+        render();
+      }
+      b.addEventListener('click', go);
+      var input = document.getElementById('saveMealName');
+      if (input) input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') go(); });
+    });
     function go(date) {
       location.hash = '#/today/' + (date > Tracker.today() ? Tracker.today() : date);
     }
@@ -1963,7 +2231,7 @@
   // Router
   // ======================================================================
   var route = { name: 'today', arg: null };
-  var NAV = [['today', 'nav_today'], ['snap', 'nav_snap'], ['history', 'nav_history'], ['settings', 'nav_settings']];
+  var NAV = [['today', 'nav_today'], ['snap', 'nav_snap'], ['meals', 'nav_meals'], ['history', 'nav_history'], ['settings', 'nav_settings']];
 
   // #/today, #/today/2026-11-07, #/snap ... and #/today?add=<slug>, which is
   // how a food page on Food is Medicine hands a food over to be logged.
@@ -1989,6 +2257,7 @@
     renderNav();
     if (route.name === 'snap') viewSnap();
     else if (route.name === 'history') viewHistory();
+    else if (route.name === 'meals') viewMeals();
     else if (route.name === 'settings') viewSettings();
     else viewToday(route.arg);
   }

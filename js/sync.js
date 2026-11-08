@@ -128,6 +128,23 @@
       pushSettings: function (uid, doc) {
         return load().then(function (f) { return f.fs.setDoc(f.fs.doc(f.db, 'users', uid, 'settings', 'main'), doc); });
       },
+      pullLibrary: function (uid) {
+        return load().then(function (f) { return f.fs.getDoc(f.fs.doc(f.db, 'users', uid, 'library', 'main')); })
+          .then(function (d) { return d.exists() ? d.data() : null; });
+      },
+      pushLibrary: function (uid, doc) {
+        return load().then(function (f) { return f.fs.setDoc(f.fs.doc(f.db, 'users', uid, 'library', 'main'), doc); });
+      },
+      listenLibrary: function (uid, cb, onError) {
+        var stop = false, off = null;
+        load().then(function (f) {
+          if (stop) return;
+          off = f.fs.onSnapshot(f.fs.doc(f.db, 'users', uid, 'library', 'main'), function (d) {
+            if (d.exists() && !d.metadata.hasPendingWrites) cb(d.data());
+          }, onError);
+        });
+        return function () { stop = true; if (off) off(); };
+      },
       listenSettings: function (uid, cb, onError) {
         var stop = false, off = null;
         load().then(function (f) {
@@ -310,6 +327,33 @@
     if (window.Profile && window.Profile.onChange) window.Profile.onChange(changed);
   }
 
+  // ---- saved meals and recipes ------------------------------------------------
+
+  /** Merge the account's library here, then send back whatever it lacks. */
+  function syncLibrary(remoteDoc) {
+    var b = getBackend(), user = state.user, L = window.Library;
+    if (!user || !L || !b.pushLibrary) return Promise.resolve();
+    if (remoteDoc) L.merge(remoteDoc);
+    if (remoteDoc && L.same(remoteDoc)) return Promise.resolve();
+    var empty = !L.meals().length && !L.recipes().length && !Object.keys(L.doc().deleted).length;
+    if (!remoteDoc && empty) return Promise.resolve();
+    return b.pushLibrary(user.uid, L.doc());
+  }
+
+  var libraryTimer = null;
+  function hookLibrary() {
+    if (!window.Library) return;
+    window.Library.onChange(function (info) {
+      if (!state.user || (info && info.remote)) return;
+      clearTimeout(libraryTimer);
+      libraryTimer = setTimeout(function () {
+        getBackend().pushLibrary(state.user.uid, window.Library.doc()).then(function () {
+          set({ lastSync: Date.now(), status: 'on', error: '' });
+        }, function (err) { set({ status: 'error', error: message(err) }); });
+      }, PUSH_DELAY);
+    });
+  }
+
   /**
    * First contact after signing in: merge every day the account holds into
    * this device, send back every day the account lacks or holds differently,
@@ -317,12 +361,11 @@
    */
   function connect(user) {
     hookTracker();
-    if (!settingsHooked) { settingsHooked = true; hookSettings(); }
+    if (!settingsHooked) { settingsHooked = true; hookSettings(); hookLibrary(); }
     set({ user: user, status: 'syncing', error: '' });
     var b = getBackend();
-    var settingsDone = b.pullSettings
-      ? b.pullSettings(user.uid).then(syncSettings)
-      : Promise.resolve();
+    var settingsDone = (b.pullSettings ? b.pullSettings(user.uid).then(syncSettings) : Promise.resolve())
+      .then(function () { return b.pullLibrary ? b.pullLibrary(user.uid).then(syncLibrary) : null; });
     return settingsDone.then(function () { return b.pullAll(user.uid); }).then(function (remote) {
       Tracker.mergeDays(remote);
       var send = Tracker.allDates().filter(function (d) {
@@ -338,7 +381,11 @@
       var offSettings = b.listenSettings ? b.listenSettings(user.uid, function (doc) {
         syncSettings(doc).catch(function (err) { set({ status: 'error', error: message(err) }); });
       }, function (err) { set({ status: 'error', error: message(err) }); }) : null;
-      unlisten = function () { offDays(); if (offSettings) offSettings(); };
+      var offLibrary = b.listenLibrary ? b.listenLibrary(user.uid, function (doc) {
+        if (window.Library) window.Library.merge(doc);
+        set({ lastSync: Date.now() });
+      }, function (err) { set({ status: 'error', error: message(err) }); }) : null;
+      unlisten = function () { offDays(); if (offSettings) offSettings(); if (offLibrary) offLibrary(); };
       set({ status: 'on', lastSync: Date.now() });
     }).catch(function (err) {
       set({ status: 'error', error: message(err) });
@@ -393,8 +440,8 @@
     else if (s.status === 'syncing') line = s.user ? 'Signed in as ' + who + '. Syncing…' : 'Reconnecting…';
     else if (s.user) line = 'Signed in as ' + who + '.' + (s.lastSync ? ' Last synced at ' + when(s.lastSync) + '.' : '');
     return '<h2>Sync across devices</h2>' +
-      '<p class="hint">Optional. Sign in with Google to keep the same log, profile (age, sex, height, ' +
-      'weight, activity) and dietary settings on your phone and computer. They are then also stored in ' +
+      '<p class="hint">Optional. Sign in with Google to keep the same log, saved meals and recipes, ' +
+      'profile (age, sex, height, weight, activity) and dietary settings on your phone and computer. They are then also stored in ' +
       'Food Log’s Firebase project on Google Cloud, readable only by your signed-in account. Your Gemini ' +
       'key never leaves this device. The copy here stays the main one, and signing out leaves it as it ' +
       'is.</p>' +

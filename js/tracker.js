@@ -217,7 +217,9 @@
    * how much energy they leave uncounted rather than treating them as zero.
    */
   function isComplete(e) {
-    return !e.fixed && !!e.slug && e.per100 && e.per100.iron != null;
+    // A recipe's figures are summed from its USDA ingredients, so it carries
+    // the full profile even though no single food record stands behind it.
+    return !e.fixed && (!!e.slug || e.source === 'recipe') && e.per100 && e.per100.iron != null;
   }
 
   /**

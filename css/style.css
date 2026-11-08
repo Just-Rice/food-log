@@ -974,3 +974,13 @@ a.wk-col:hover .wk-bar { background: var(--accent); }
 .product-head img { width: 64px; height: 64px; object-fit: contain; border-radius: 8px; background: var(--card); flex: none; }
 ul.product-facts { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: .88rem; color: var(--ink-soft); }
 .product-panel .note { margin: 8px 0; }
+
+/* ---- Meals and recipes --------------------------------------------------- */
+.lib-card { margin-bottom: 10px; }
+.lib-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.lib-card .hint { margin: 4px 0 8px; }
+.save-meal-btn { margin-top: 8px; }
+.save-meal { margin-top: 10px; }
+.save-meal label { flex: 1 1 100%; font-size: .78rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
+.save-meal input[type="text"] { flex: 1 1 200px; width: auto; text-align: left; }
+.recipe-sum { margin: 12px 0; font-variant-numeric: tabular-nums; }
