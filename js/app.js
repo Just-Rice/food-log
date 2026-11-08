@@ -94,7 +94,21 @@
     nutrients_title: 'Vitamins and minerals',
     nutrients_lede_personal: 'The day against your own reference intakes (RDA or AI for your age and sex).',
     nutrients_lede_generic: 'The day against the general Daily Values printed on US food labels. Set up a profile for your own.',
-    nutrients_partial: '{n} entries ({kcal} kcal) carry energy only, so their vitamins and minerals are not counted here.',
+    nutrients_partial: '{n} entries ({kcal} kcal) have no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so their vitamins and minerals are not counted here.',
+    scan_btn: 'Scan a barcode', scan_title: 'Scan a barcode',
+    scan_hint: 'Point the camera at the barcode on the packet and hold it steady.',
+    scan_type: 'Or type the number under the barcode', look_up: 'Look up', close: 'Close',
+    scan_starting: 'Opening the camera…',
+    scan_looking: 'Looking up {code} on Open Food Facts…',
+    scan_notfound: 'Open Food Facts does not know {code} yet. You can type the figures in from the label below.',
+    scan_invalid: 'That is not a valid barcode number. Check the digits under the bars.',
+    per_100: 'per 100 g', per_serving: '1 serving ({label})',
+    product_allergens: 'Allergens on record: {list}.', product_traces: 'May contain: {list}.',
+    product_no_allergens: 'No allergens on record.',
+    off_disclaimer: 'Product data comes from Open Food Facts, a free database anyone can edit. Its allergen lists are often incomplete: the label on the packet is what to trust.',
+    off_credit: 'Data: Open Food Facts, ODbL licence',
+    no_energy: 'This product has no energy figure on record, so it cannot be logged from here. Type it in from the label instead.',
+    from_label: 'packet', label_sub: 'From the packet label, via Open Food Facts',
     over_ul: 'Above the tolerable upper intake level of {ul} {unit}.',
     over_sodium: 'Above the {ul} mg level the 2019 DRIs set for reducing chronic-disease risk.',
     ul_food_note: 'Upper limits that apply only to supplements and fortified foods are not flagged, since food alone is not known to cause harm at those intakes.',
@@ -206,7 +220,7 @@
   // Medicine's food pages use.
   var NUTRIENTS = {
     kcal: ['Energy', 'kcal'], protein: ['Protein', 'g'], carbs: ['Carbohydrate', 'g'],
-    fat: ['Total fat', 'g'], fiber: ['Fibre', 'g'], sugar: ['Sugars', 'g'],
+    fat: ['Total fat', 'g'], fiber: ['Fibre', 'g'], sugar: ['Sugars', 'g'], satfat: ['Saturated fat', 'g'],
     vita: ['Vitamin A', 'ug'], vitc: ['Vitamin C', 'mg'], vitd: ['Vitamin D', 'ug'],
     vite: ['Vitamin E', 'mg'], vitk: ['Vitamin K', 'ug'], thiamin: ['Thiamin (B1)', 'mg'],
     riboflavin: ['Riboflavin (B2)', 'mg'], niacin: ['Niacin (B3)', 'mg'],
@@ -357,7 +371,7 @@
   // ======================================================================
   // State
   // ======================================================================
-  var logState = { date: null, pick: null, pickGrams: null, meal: null, measuring: null, notice: '' };
+  var logState = { date: null, pick: null, pickGrams: null, meal: null, measuring: null, notice: '', scan: null };
   var snap = { status: null, hint: '' };
   var histState = { days: 7 };
 
@@ -436,6 +450,174 @@
   }
 
   // ======================================================================
+  // Barcodes: a camera sheet over the page, then the product in the add card
+  // ======================================================================
+  var stopCamera = null;
+
+  /** Whether a remembered product clashes outright with the dietary settings. */
+  function productBlocked(code) {
+    var p = window.Barcode && Barcode.cached(code);
+    if (!p) return false;
+    return Barcode.conflicts(p, Prefs.get(), function (k) { return t('a_' + k); })
+      .some(function (c) { return c.level === 'stop'; });
+  }
+
+  function closeScanner() {
+    if (stopCamera) { stopCamera(); stopCamera = null; }
+    var sheet = document.getElementById('scanSheet');
+    if (sheet) sheet.remove();
+  }
+
+  // The sheet lives outside #main, so the page re-rendering underneath (a
+  // sync arriving, say) cannot tear the camera down mid-scan.
+  function openScanner() {
+    closeScanner();
+    var sheet = document.createElement('div');
+    sheet.id = 'scanSheet';
+    sheet.className = 'scan-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-label', t('scan_title'));
+    sheet.innerHTML = '<div class="scan-box card pad">' +
+      '<div class="scan-top"><strong>' + esc(t('scan_title')) + '</strong>' +
+      '<button class="btn ghost small" type="button" data-scan="close">' + esc(t('close')) + '</button></div>' +
+      '<video class="scan-video" playsinline muted></video>' +
+      '<p class="hint" id="scanMsg">' + esc(t('scan_starting')) + '</p>' +
+      '<label class="label-text" for="scanCode">' + esc(t('scan_type')) + '</label>' +
+      '<div class="measure-row"><input id="scanCode" type="text" inputmode="numeric" autocomplete="off" maxlength="14">' +
+      '<button class="btn small" type="button" data-scan="go">' + esc(t('look_up')) + '</button></div></div>';
+    document.body.appendChild(sheet);
+    sheet.querySelector('[data-scan="close"]').addEventListener('click', closeScanner);
+    function go() { lookupCode(document.getElementById('scanCode').value); }
+    sheet.querySelector('[data-scan="go"]').addEventListener('click', go);
+    sheet.querySelector('#scanCode').addEventListener('keydown', function (ev) { if (ev.key === 'Enter') go(); });
+    sheet.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeScanner(); });
+    Barcode.startCamera(sheet.querySelector('video'), function (code) { lookupCode(code); })
+      .then(function (stop) {
+        if (!document.getElementById('scanSheet')) { stop(); return; }
+        stopCamera = stop;
+        var m = document.getElementById('scanMsg');
+        if (m) m.textContent = t('scan_hint');
+      }, function (err) {
+        var m = document.getElementById('scanMsg');
+        if (m) m.textContent = err.message;
+        var v = sheet.querySelector('video');
+        if (v) v.hidden = true;
+        var input = document.getElementById('scanCode');
+        if (input) input.focus();
+      });
+  }
+
+  function lookupCode(code) {
+    code = String(code || '').replace(/\s+/g, '');
+    if (!Barcode.validCode(code)) {
+      var m = document.getElementById('scanMsg');
+      if (m) m.textContent = t('scan_invalid');
+      return;
+    }
+    closeScanner();
+    logState.pick = null;
+    logState.scan = { status: 'loading', code: code };
+    if (route.name !== 'today') location.hash = '#/today'; else render();
+    Barcode.lookup(code).then(function (p) {
+      logState.scan = p ? { status: 'found', code: code, product: p, grams: null } : { status: 'notfound', code: code };
+    }, function (err) {
+      logState.scan = { status: 'error', code: code, error: err.message };
+    }).then(function () { if (route.name === 'today') render(); });
+  }
+
+  function scanPanel() {
+    var sc = logState.scan;
+    if (!sc) return '';
+    var cancel = '<button class="btn ghost" type="button" data-scan-cancel>' + esc(t('cancel')) + '</button>';
+    if (sc.status === 'loading') return '<div class="pick-panel"><p>' + esc(t('scan_looking', { code: sc.code })) + '</p></div>';
+    if (sc.status === 'notfound') {
+      return '<div class="pick-panel"><p>' + esc(t('scan_notfound', { code: sc.code })) + '</p><div class="btn-row">' +
+        '<button class="btn" type="button" data-scan-manual>' + esc(t('manual_entry')) + '</button>' + cancel + '</div></div>';
+    }
+    if (sc.status === 'error') {
+      return '<div class="pick-panel"><div class="note danger"><p>' + esc(sc.error) + '</p></div><div class="btn-row">' + cancel + '</div></div>';
+    }
+    var p = sc.product, labels = function (k) { return t('a_' + k); };
+    var issues = Barcode.conflicts(p, Prefs.get(), labels);
+    var opts = [];
+    if (p.serving) opts.push({ label: t('per_serving', { label: p.serving.label }), grams: p.serving.grams });
+    opts.push({ label: '100 g', grams: 100 });
+    var grams = sc.grams || opts[0].grams;
+    var row = function (k, unit) {
+      return p.per100[k] == null ? '' : '<li>' + esc(nutrientLabel(k)) + ' <strong>' + fmt(p.per100[k]) + ' ' + unit + '</strong></li>';
+    };
+    return '<div class="pick-panel product-panel">' +
+      '<div class="product-head">' +
+      (p.image ? '<img src="' + esc(p.image) + '" alt="" loading="lazy" referrerpolicy="no-referrer">' : '') +
+      '<div><strong>' + esc(p.name) + '</strong>' + (p.brand ? '<span class="dim"> · ' + esc(p.brand) + '</span>' : '') +
+      '<p class="hint" style="margin:2px 0 0">' + esc(t('per_100')) + ':</p>' +
+      '<ul class="product-facts">' + row('kcal', 'kcal') + row('protein', 'g') + row('carbs', 'g') + row('sugar', 'g') +
+      row('fat', 'g') + row('satfat', 'g') + row('fiber', 'g') + row('sodium', 'mg') + '</ul></div></div>' +
+      issues.map(function (c) {
+        return '<div class="note ' + (c.level === 'stop' ? 'danger' : 'warn') + '"><p>' + esc(c.text) + '</p></div>';
+      }).join('') +
+      '<p class="hint">' + esc(p.allergenWords.length ? t('product_allergens', { list: p.allergenWords.join(', ') }) : t('product_no_allergens')) +
+      (p.traceWords.length ? ' ' + esc(t('product_traces', { list: p.traceWords.join(', ') })) : '') + '</p>' +
+      '<p class="hint warn-text">' + esc(t('off_disclaimer')) + '</p>' +
+      (p.hasEnergy
+        ? '<div class="chips" style="margin:10px 0">' + opts.map(function (o) {
+            return '<button class="chip" type="button" data-scan-grams="' + o.grams + '" aria-pressed="' +
+              (Math.abs(o.grams - grams) < 0.5) + '">' + esc(o.label) + '</button>';
+          }).join('') + '</div>' +
+          '<div class="field-row">' +
+          '<div class="field"><label for="scanGrams">' + esc(t('amount_g')) + '</label>' +
+          '<input id="scanGrams" type="number" min="1" max="5000" step="1" value="' + esc(Math.round(grams)) + '"></div>' +
+          '<div class="field"><label for="scanMeal">' + esc(t('meal')) + '</label>' + mealSelect('scanMeal', currentMeal()) + '</div>' +
+          '<div class="field"><label>&nbsp;</label><span class="pick-kcal" id="scanKcal">' +
+          Math.round((p.per100.kcal || 0) * grams / 100) + ' kcal</span></div></div>' +
+          '<div class="btn-row"><button class="btn" type="button" id="scanAdd">' + esc(t('add_to_log')) + '</button>' + cancel + '</div>'
+        : '<p>' + esc(t('no_energy')) + '</p><div class="btn-row"><button class="btn" type="button" data-scan-manual>' +
+          esc(t('manual_entry')) + '</button>' + cancel + '</div>') +
+      '<p class="hint" style="margin-top:8px"><a href="https://world.openfoodfacts.org/product/' + esc(p.code) +
+      '" rel="noopener" target="_blank">' + esc(t('off_credit')) + '</a></p></div>';
+  }
+
+  function bindScanPanel() {
+    main.querySelectorAll('[data-scan-cancel]').forEach(function (b) {
+      b.addEventListener('click', function () { logState.scan = null; render(); });
+    });
+    main.querySelectorAll('[data-scan-manual]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var name = logState.scan && logState.scan.product ? logState.scan.product.name : '';
+        logState.scan = null;
+        render();
+        var d = main.querySelector('details.manual');
+        if (d) { d.open = true; var n = document.getElementById('manName'); if (n) { n.value = name; n.focus(); } }
+      });
+    });
+    main.querySelectorAll('[data-scan-grams]').forEach(function (b) {
+      b.addEventListener('click', function () { rememberMeal('scanMeal'); logState.scan.grams = Number(b.dataset.scanGrams); render(); });
+    });
+    var g = document.getElementById('scanGrams');
+    if (g) {
+      g.addEventListener('input', function () {
+        var p = logState.scan.product;
+        document.getElementById('scanKcal').textContent = Math.round((p.per100.kcal || 0) * (Number(g.value) || 0) / 100) + ' kcal';
+      });
+    }
+    var add = document.getElementById('scanAdd');
+    if (add) {
+      add.addEventListener('click', function () {
+        var p = logState.scan.product, grams = Number(document.getElementById('scanGrams').value);
+        if (!(grams > 0)) return;
+        rememberMeal('scanMeal');
+        Tracker.add(logState.date, {
+          name: p.brand ? p.name + ' (' + p.brand + ')' : p.name, per100: p.per100, grams: grams,
+          meal: logState.meal, source: 'barcode', barcode: p.code, brand: p.brand
+        });
+        logState.scan = null;
+        render();
+      });
+    }
+  }
+
+  // ======================================================================
   // View: today (any day)
   // ======================================================================
   function viewToday(dateArg) {
@@ -473,12 +655,14 @@
       '<p class="hint" style="margin:4px 0 12px">' + esc(t('snap_lede')) + '</p>' +
       '<a class="btn" href="#/snap">' + esc(t('nav_snap')) + ' &rarr;</a></div>' +
       '<div class="card pad">' +
-      '<strong>' + esc(t('search_add')) + '</strong>' +
+      '<div class="search-head"><strong>' + esc(t('search_add')) + '</strong>' +
+      (window.Barcode ? '<button class="btn ghost small" type="button" id="scanBtn">' + esc(t('scan_btn')) + '</button>' : '') +
+      '</div>' +
       '<div class="ingredient-add" style="margin-top:10px">' +
       '<input class="search" id="logSearch" type="search" placeholder="' +
       esc(t('search_foods')) + '" autocomplete="off" aria-label="' + esc(t('search_foods')) + '">' +
       '<div class="suggest" id="logSuggest" hidden></div></div>' +
-      pickPanel() + recentChips(date) + manualForm() +
+      scanPanel() + pickPanel() + recentChips(date) + manualForm() +
       '</div></div>' +
 
       '<h2 class="section">' + esc(t('eaten_on', {
@@ -608,10 +792,11 @@
       (e.source === 'photo' ? ' <span class="tag photo-tag">' + esc(t('from_photo')) + '</span>' : '') +
       (e.measured ? ' <span class="tag measured-tag">' + esc(t('measured')) + '</span>' : '') +
       (e.source === 'manual' ? ' <span class="tag">' + esc(t('typed_in')) + '</span>' : '') +
+      (e.source === 'barcode' ? ' <span class="tag">' + esc(t('from_label')) + '</span>' : '') +
       sub.map(function (s) { return '<span class="l-sub">' + esc(s) + '</span>'; }).join('') +
       // An unmatched photo item has only the model's energy guess; showing
       // "0 g protein" for it would be a claim, not a blank.
-      (e.per100 && !e.slug
+      (e.per100 && !e.slug && e.source !== 'barcode'
         ? '<span class="l-sub">' + esc(t('energy_only')) + '</span>'
         : '<span class="l-sub">' + fmt(n.protein) + ' g protein · ' + fmt(n.carbs) + ' g carbohydrate · ' +
           fmt(n.fat) + ' g fat</span>') +
@@ -686,9 +871,12 @@
     var seen = {}, recent = [];
     for (var i = 0; i < 14 && recent.length < 10; i++) {
       Tracker.day(Tracker.shift(date, -i)).slice().reverse().forEach(function (e) {
-        if (e.slug && !seen[e.slug] && FOOD_BY_SLUG[e.slug] && recent.length < 10 &&
-            !Prefs.excludedReason(FOOD_BY_SLUG[e.slug])) {
+        if (recent.length >= 10) return;
+        if (e.slug && !seen[e.slug] && FOOD_BY_SLUG[e.slug] && !Prefs.excludedReason(FOOD_BY_SLUG[e.slug])) {
           seen[e.slug] = true;
+          recent.push(e);
+        } else if (e.source === 'barcode' && e.barcode && !seen['b' + e.barcode] && !productBlocked(e.barcode)) {
+          seen['b' + e.barcode] = true;
           recent.push(e);
         }
       });
@@ -696,6 +884,11 @@
     if (!recent.length || logState.pick) return '';
     return '<div class="recent"><span class="label">' + esc(t('recent')) + '</span>' +
       '<div class="chips">' + recent.map(function (e) {
+        if (!e.slug) {
+          return '<button class="chip" type="button" data-again-entry="' + esc(e.id) + '" data-again-date="' +
+            esc(e.at ? Tracker.dateKey(new Date(e.at)) : date) + '">' + esc(e.name) +
+            ' <span class="dim">' + fmt(e.grams) + ' g</span></button>';
+        }
         return '<button class="chip" type="button" data-again="' + esc(e.slug) + '" ' +
           'data-again-grams="' + esc(e.grams) + '">' + esc(e.name) +
           ' <span class="dim">' + fmt(e.grams) + ' g</span></button>';
@@ -793,6 +986,22 @@
         render();
       });
     }
+
+    main.querySelectorAll('[data-again-entry]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        // Re-log a packet food from the entry it came from: the label's
+        // figures travel with the entry, so no new lookup is needed.
+        var src = null;
+        for (var i = 0; i < 14 && !src; i++) src = Tracker.find(Tracker.shift(logState.date, -i), b.dataset.againEntry);
+        if (!src) return;
+        Tracker.add(logState.date, { name: src.name, per100: src.per100, grams: src.grams, meal: currentMeal(),
+          source: 'barcode', barcode: src.barcode, brand: src.brand });
+        render();
+      });
+    });
+    var scanBtn = document.getElementById('scanBtn');
+    if (scanBtn) scanBtn.addEventListener('click', openScanner);
+    bindScanPanel();
 
     main.querySelectorAll('[data-again]').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -1785,6 +1994,7 @@
   }
 
   function onHash() {
+    closeScanner();
     var prev = route.name;
     route = parseRoute();
     if (route.name === 'today' && !route.arg) logState.date = Tracker.today();

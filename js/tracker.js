@@ -330,6 +330,8 @@
         if (lo && hi && lo <= grams && hi >= grams && hi > lo) { e.gramsLow = lo; e.gramsHigh = hi; }
       }
       if (item.label) e.label = String(item.label).slice(0, 120);
+      if (item.barcode) e.barcode = String(item.barcode).replace(/\D/g, '').slice(0, 14);
+      if (item.brand) e.brand = String(item.brand).slice(0, 60);
       if (item.photoId) e.photoId = String(item.photoId).slice(0, 40);
       var plate = Number(item.plateAssumed);
       if (plate >= 8 && plate <= 45) e.plateAssumed = plate;
