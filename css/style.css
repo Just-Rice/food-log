@@ -951,3 +951,11 @@ a.wk-col:hover .wk-bar { background: var(--accent); }
 .week-chart.dense { gap: 2px; }
 .settings-block { margin-bottom: 14px; }
 .settings-block h2 { margin-top: 0; font-size: 1.1rem; }
+
+/* ---- On-device model ---------------------------------------------------- */
+.label-text { display: block; font-size: .8rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.local-card h2 { margin-top: 0; font-size: 1.1rem; }
+.local-bar { margin: 10px 0 0; }
+.local-progress { margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+.p-search { margin-top: 6px; }
+.p-search .search { padding: 6px 10px; font-size: .86rem; }

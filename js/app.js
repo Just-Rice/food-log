@@ -16,6 +16,7 @@
   var Tracker = window.Tracker;
   var Gemini = window.Gemini;
   var Photo = window.Photo;
+  var LocalModel = window.LocalModel;
 
   var main = document.getElementById('main');
   var nav = document.getElementById('nav');
@@ -122,7 +123,30 @@
     ed_help_link: 'What eating disorders are, and how to get help',
     no_data: 'The food list could not be loaded from Food is Medicine. Check your connection and reload. If you are running this locally, serve the folder that holds both food-log and food-is-medicine.',
     photo_credit: 'Photo: {author}, {license}',
-    on_fim: 'On Food is Medicine'
+    on_fim: 'On Food is Medicine',
+    local_title: 'On-device model',
+    local_lede: 'Gemma 4 E2B, Google’s open model, can read your meal photos on this device: no key, no daily limit, and the photo never leaves your phone or computer. It is a one-time download of about {gb} GB, so use Wi-Fi, and it is slower than Gemini, most of all on a phone.',
+    local_checking: 'Checking what this device can run…',
+    local_download: 'Download the model ({gb} GB)',
+    local_downloading: 'Downloading… {done} of about {gb} GB',
+    local_loading: 'Loading the model into memory. The first time on each visit this can take a minute.',
+    local_ready: 'Ready, and loaded for this visit.',
+    local_cached: 'Downloaded. It loads from this device the next time you snap a meal.',
+    local_load_now: 'Load it now', local_stop: 'Stop', local_delete: 'Delete the model',
+    local_error: 'The model did not load: {msg}',
+    local_try_again: 'Try again',
+    local_not_cached: 'This browser did not let the site keep the model, so it will download again on your next visit. Freeing up storage space usually fixes it.',
+    engine_label: 'Read the photo with',
+    engine_gemini: 'Gemini (your key)', engine_local: 'On this device',
+    snap_setup: 'Photo estimates need one of these. Either works; you can set up both and choose each time.',
+    snap_setup_gemini: 'Use Gemini with your own free key',
+    snap_setup_gemini_lede: 'Fast and the most accurate. The photo is sent to Google with your key.',
+    snap_local_privacy: 'The photo is read on this device and never leaves it.',
+    snap_local_loading: 'Loading the on-device model…',
+    snap_local_reading: 'Looking at your plate on this device…',
+    snap_local_writing: 'Writing the list of foods… {n} tokens so far.',
+    change_match: 'Search for a different food',
+    snap_local_slow: 'On-device reading is slower than Gemini, from under a minute on a laptop to a few minutes on a phone.'
   };
 
   function t(key, vars) {
@@ -823,24 +847,42 @@
   // then its short search words; cooked foods are preferred when the plate is
   // cooked, because the raw and dry records are two to three times as
   // energy-dense as what is actually on a plate.
+  var VAGUE_WORD = /^(fried|deep|cooked|boiled|baked|roasted|grilled|steamed|stewed|raw|fresh|plain|white|brown|red|green|yellow|mixed|mix|dip|sauce|gravy|curry|side|dish|style|fry|food|meal|plate|bowl|small|large|piece|pieces|slice|slices|and|with|of|in|the|homemade)$/;
+
   function photoMatches(item) {
     var queries = [];
-    function addQ(q, bonus) {
+    function addQ(q, bonus, whole) {
       q = q.trim().toLowerCase();
       if (q.length >= 3 && !queries.some(function (x) { return x.q === q; })) {
-        queries.push({ q: q, bonus: bonus });
+        queries.push({
+          q: q, bonus: bonus,
+          // Single words must match a whole word: "bread" is not breadfruit.
+          re: whole ? new RegExp('(^|[^a-z])' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z])') : null
+        });
       }
     }
     addQ(item.name, 10);
     addQ(item.name.split(',')[0], 5);
+    // "Raita/Yogurt dip" is two guesses at one thing: try each.
+    item.name.split('/').forEach(function (alt) { addQ(alt.split(',')[0], 5); });
     addQ(item.search || '', 0);
-    (item.search || '').split(/[\s,]+/).forEach(function (w) { addQ(w, -15); });
+    // Single words are a last resort, and a cooking word on its own says
+    // nothing about the food: "fried" from "fried bread" would otherwise find
+    // a fried egg, and "curry" finds curry powder.
+    (item.search + ' ' + item.name).split(/[\s,\/()]+/).forEach(function (w) {
+      if (!VAGUE_WORD.test(w.toLowerCase())) addQ(w, -15, true);
+    });
 
     var COOKED = /\b(cooked|boiled|baked|fried|scrambled|roasted|porridge)\b/;
     return FOODS.map(function (f) {
       var hay = haystack(f), best = -Infinity;
       queries.forEach(function (x) {
-        if (hay.indexOf(x.q) >= 0) best = Math.max(best, relevance(f, x.q) + x.bonus);
+        if (x.re ? x.re.test(hay) : hay.indexOf(x.q) >= 0) {
+          var r = relevance(f, x.q);
+          // A whole-word query should not earn relevance's prefix score.
+          if (x.re && r === 90 && !x.re.test(f.name.toLowerCase())) r = 30;
+          best = Math.max(best, r + x.bonus);
+        }
       });
       if (best === -Infinity) return null;
       var isCooked = (f.tags || []).indexOf('cooked') >= 0 || COOKED.test(f.name.toLowerCase());
@@ -853,6 +895,28 @@
     }).filter(Boolean).sort(function (a, b) { return b.score - a.score; }).slice(0, 6);
   }
 
+  // Whether the best candidate is safe to pick without asking. A search for
+  // "curry" finds curry powder, and "fried bread" finds a flour: plausible
+  // words, absurd foods for 200 g on a plate. So a spice, powder, flour or oil
+  // is never chosen for a sizeable portion, and the match's energy density has
+  // to be within a factor of two of what the model itself expected. Anything
+  // that fails stays unmatched -- labelled, using the model's own estimate --
+  // with the candidates still offered in the menu.
+  var NOT_A_PORTION = /\b(powder|seasoning|spice|flour|meal|bran|oil|extract|dried|dry|mix)\b/;
+  function autoMatch(it, m) {
+    if (!m.length || m[0].score < 40) return null;
+    // Walk down the list past unsuitable candidates, but only while they are
+    // nearly as good a match as the best: a distant runner-up is a guess.
+    for (var i = 0; i < m.length && m[i].score >= Math.max(40, m[0].score - 20); i++) {
+      var f = FOOD_BY_SLUG[m[i].slug];
+      if (it.grams > 30 && (f.group === 'herb' || NOT_A_PORTION.test(f.name.toLowerCase()))) continue;
+      var k = f.nutrients.kcal || 0;
+      if (it.kcalPer100 && k && (k / it.kcalPer100 > 2 || it.kcalPer100 / k > 2)) continue;
+      return f.slug;
+    }
+    return null;
+  }
+
   function prepareItems(items) {
     return items.map(function (it) {
       var m = photoMatches(it);
@@ -860,7 +924,7 @@
         name: it.name, cooked: it.cooked, confidence: it.confidence, kcalPer100: it.kcalPer100,
         grams: it.grams, gramsLow: it.gramsLow, gramsHigh: it.gramsHigh,
         candidates: m.map(function (x) { return x.slug; }),
-        slug: m.length && m[0].score >= 40 ? m[0].slug : null,
+        slug: autoMatch(it, m),
         include: true, measured: false, measure: ''
       };
     });
@@ -871,6 +935,113 @@
     return it.kcalPer100 || 0;
   }
 
+  // ---- photo engines: Gemini (own key) or the on-device model -------------
+  var ENGINE_KEY = 'foodlog.engine';
+
+  function enginePref() {
+    try { return localStorage.getItem(ENGINE_KEY) || ''; } catch (e) { return ''; }
+  }
+
+  /** Which engine a new photo uses, or null if neither is set up. */
+  function engineChoice() {
+    var g = Gemini.hasKey();
+    var l = !!LocalModel && (LocalModel.isDownloaded() || LocalModel.state().status === 'ready');
+    if (g && l) return enginePref() === 'local' ? 'local' : 'gemini';
+    if (g) return 'gemini';
+    if (l) return 'local';
+    return null;
+  }
+
+  var localCaps = null;
+
+  function fmtGb(bytes) { return (bytes / 1e9).toFixed(bytes >= 1e10 ? 0 : 1); }
+
+  // The on-device model's card: what it is, whether this device can run it,
+  // and download / load / delete with progress. Used on Settings and on the
+  // Snap page when no engine is set up yet.
+  function localCardInner() {
+    var st = LocalModel.state();
+    var c = localCaps;
+    var gb = c && c.sizeGb ? c.sizeGb : 3.4;
+    var html = '<h2>' + esc(t('local_title')) + '</h2>' +
+      '<p class="hint">' + esc(t('local_lede', { gb: gb })) + '</p>';
+    if (!c) return html + '<p class="hint">' + esc(t('local_checking')) + '</p>';
+    if (!c.ok) return html + '<div class="note warn"><p>' + esc(c.reason) + '</p></div>';
+    html += (c.warnings || []).map(function (w) {
+      return '<p class="hint warn-text">' + esc(w) + '</p>';
+    }).join('');
+    var btn = function (act, label, ghost) {
+      return '<button class="btn' + (ghost ? ' ghost' : '') + '" type="button" data-local="' + act + '">' +
+        esc(label) + '</button>';
+    };
+    if (st.status === 'downloading' || st.status === 'loading') {
+      var total = st.total || gb * 1e9;
+      var pct = Math.min(100, Math.round(st.loaded / total * 100));
+      html += '<div class="bar log-bar local-bar"><span style="width:' +
+        (st.status === 'downloading' ? pct : 100) + '%"></span></div>' +
+        '<p class="hint local-progress">' + esc(st.status === 'downloading'
+          ? t('local_downloading', { done: fmtGb(st.loaded), gb: gb })
+          : t('local_loading')) + '</p>' +
+        '<div class="btn-row">' + btn('stop', t('local_stop'), true) + '</div>';
+    } else if (st.status === 'ready') {
+      html += '<p>' + esc(t('local_ready')) + '</p>' +
+        (st.notCached ? '<p class="hint warn-text">' + esc(t('local_not_cached')) + '</p>' : '') +
+        '<div class="btn-row">' +
+        btn('delete', t('local_delete'), true) + '</div>';
+    } else if (st.status === 'cached') {
+      html += '<p>' + esc(t('local_cached')) + '</p><div class="btn-row">' +
+        btn('load', t('local_load_now'), true) + btn('delete', t('local_delete'), true) + '</div>';
+    } else if (st.status === 'error') {
+      html += '<div class="note danger"><p>' + esc(t('local_error', { msg: st.error })) + '</p></div>' +
+        '<div class="btn-row">' + btn('load', t('local_try_again')) +
+        btn('delete', t('local_delete'), true) + '</div>';
+    } else {
+      html += '<div class="btn-row">' + btn('load', t('local_download', { gb: gb })) + '</div>';
+    }
+    return html;
+  }
+
+  function refreshLocalCards() {
+    document.querySelectorAll('.local-card').forEach(function (el) {
+      el.innerHTML = localCardInner();
+      el.querySelectorAll('[data-local]').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var act = b.dataset.local;
+          if (act === 'load') LocalModel.load().catch(function () { /* shown via state */ });
+          else if (act === 'stop') LocalModel.stop();
+          else if (act === 'delete') LocalModel.remove().then(refreshLocalCards);
+        });
+      });
+    });
+  }
+
+  function bindLocalCards() {
+    if (!LocalModel || !document.querySelector('.local-card')) return;
+    refreshLocalCards();
+    if (!localCaps) LocalModel.check().then(function (c) { localCaps = c; refreshLocalCards(); });
+  }
+
+  var lastLocalStatus = LocalModel ? LocalModel.state().status : null;
+  if (LocalModel) {
+    LocalModel.onChange(function (st) {
+      var changed = st.status !== lastLocalStatus;
+      lastLocalStatus = st.status;
+      // A finished download makes the engine available: redraw the Snap page
+      // so it offers it, unless a photo is being read right now.
+      if (changed && route.name === 'snap' && snap.status !== 'busy') { render(); return; }
+      if (changed) { refreshLocalCards(); return; }
+      var bar = document.querySelector('.local-bar span');
+      var txt = document.querySelector('.local-progress');
+      if (bar && st.status === 'downloading') {
+        var total = st.total || 3.4e9;
+        bar.style.width = Math.min(100, Math.round(st.loaded / total * 100)) + '%';
+        if (txt) txt.textContent = t('local_downloading', {
+          done: fmtGb(st.loaded), gb: localCaps && localCaps.sizeGb || 3.4
+        });
+      }
+    });
+  }
+
   function viewSnap() {
     main.innerHTML = '<div class="page-head"><h1>' + esc(t('snap_title')) + '</h1>' +
       '<p>' + esc(t('snap_lede')) + '</p></div>' + snapBody() +
@@ -879,20 +1050,35 @@
   }
 
   function snapBody() {
-    if (!Gemini.hasKey()) {
-      return '<div class="card pad"><p>' + esc(t('snap_needs_key')) + '</p>' +
-        '<p><a class="btn" href="#/settings">' + esc(t('nav_settings')) + ' &rarr;</a> ' +
+    var engine = engineChoice();
+    if (!engine && snap.status !== 'review') {
+      return '<p>' + esc(t('snap_setup')) + '</p><div class="log-add">' +
+        '<div class="card pad"><h2>' + esc(t('snap_setup_gemini')) + '</h2>' +
+        '<p class="hint">' + esc(t('snap_setup_gemini_lede')) + '</p>' +
+        '<div class="btn-row"><a class="btn" href="#/settings">' + esc(t('nav_settings')) + ' &rarr;</a>' +
         '<a href="' + esc(Gemini.STUDIO_URL) + '" rel="noopener" target="_blank">' +
-        esc(t('get_free_key')) + '</a></p></div>';
+        esc(t('get_free_key')) + '</a></div></div>' +
+        (LocalModel ? '<div class="card pad local-card"></div>' : '') + '</div>';
     }
     if (snap.status === 'busy') {
       return '<div class="card pad"><div class="photo-row">' +
         (snap.dataUrl ? '<img class="photo-thumb" src="' + esc(snap.dataUrl) + '" alt="">' : '') +
-        '<p>' + esc(t('snap_busy')) + '</p></div></div>';
+        '<div><p id="snapStatus">' + esc(snap.engine === 'local' ? localStatusText(snap.localStatus) : t('snap_busy')) +
+        '</p>' + (snap.engine === 'local' ? '<p class="hint">' + esc(t('snap_local_slow')) + '</p>' : '') +
+        '</div></div></div>';
     }
     if (snap.status === 'review') return snapReview();
 
+    var both = Gemini.hasKey() && LocalModel && (LocalModel.isDownloaded() || LocalModel.state().status === 'ready');
     return '<div class="card pad">' +
+      (both
+        ? '<div class="field" style="margin-bottom:12px"><span class="label-text">' + esc(t('engine_label')) + '</span>' +
+          '<div class="chips" role="group" aria-label="' + esc(t('engine_label')) + '">' +
+          ['gemini', 'local'].map(function (e) {
+            return '<button class="chip" type="button" data-engine="' + e + '" aria-pressed="' + (e === engine) + '">' +
+              esc(t('engine_' + e)) + '</button>';
+          }).join('') + '</div></div>'
+        : '') +
       (snap.status === 'error' ? '<div class="note danger"><p>' + esc(snap.error) + '</p></div>' : '') +
       '<div class="field" style="margin-bottom:12px"><label for="photoHint">' +
       esc(t('snap_hint_label')) + '</label>' +
@@ -903,7 +1089,15 @@
       '<input type="file" accept="image/*" capture="environment" id="photoCam" hidden></label>' +
       '<label class="btn ghost file-btn">' + esc(t('choose_photo')) +
       '<input type="file" accept="image/*" id="photoFile" hidden></label></div>' +
-      '<p class="hint" style="margin-top:10px">' + esc(t('snap_privacy')) + '</p></div>';
+      '<p class="hint" style="margin-top:10px">' +
+      esc(engine === 'local' ? t('snap_local_privacy') + ' ' + t('snap_local_slow') : t('snap_privacy')) +
+      '</p></div>';
+  }
+
+  function localStatusText(s) {
+    if (!s || s.phase === 'loading') return t('snap_local_loading');
+    if (s.phase === 'writing') return t('snap_local_writing', { n: s.count });
+    return t('snap_local_reading');
   }
 
   function snapReview() {
@@ -968,6 +1162,9 @@
       '<option value=""' + (it.slug ? '' : ' selected') + '>' +
       esc(t('model_estimate', { n: it.kcalPer100 ? Math.round(it.kcalPer100) : '?' })) +
       '</option></select>' +
+      '<div class="ingredient-add p-search"><input class="search" type="search" data-psearch="' + i +
+      '" placeholder="' + esc(t('change_match')) + '" aria-label="' + esc(t('change_match') + ': ' + it.name) +
+      '" autocomplete="off"><div class="suggest" data-psuggest="' + i + '" hidden></div></div>' +
       (mismatch
         ? '<p class="hint warn-text">' + esc(t('snap_mismatch', {
             usda: Math.round(per100), model: Math.round(it.kcalPer100)
@@ -999,14 +1196,24 @@
     if (!file) return;
     var hintEl = document.getElementById('photoHint');
     if (hintEl) snap.hint = hintEl.value;
-    snap = { status: 'busy', dataUrl: '', hint: snap.hint };
+    var engine = engineChoice();
+    if (!engine) return;
+    snap = { status: 'busy', dataUrl: '', hint: snap.hint, engine: engine, localStatus: null };
     // Show the picture straight away so the wait has something to look at.
     Photo.prepare(file).then(function (img) {
       if (snap.status === 'busy') { snap.dataUrl = img.dataUrl; if (route.name === 'snap') render(); }
     }, function () { /* analyse() reports the same error */ });
     render();
 
-    Photo.analyse(file, { hint: snap.hint }).then(function (res) {
+    var job = engine === 'local'
+      ? LocalModel.analyse(file, { hint: snap.hint }, function (s) {
+          if (snap.status !== 'busy') return;
+          snap.localStatus = s;
+          var el = document.getElementById('snapStatus');
+          if (el) el.textContent = localStatusText(s);
+        })
+      : Photo.analyse(file, { hint: snap.hint });
+    job.then(function (res) {
       snap = {
         status: 'review', dataUrl: res.dataUrl, notes: res.notes, hint: snap.hint,
         plateCm: res.plateCm, items: prepareItems(res.items), photoId: Tracker.newId()
@@ -1019,6 +1226,15 @@
   }
 
   function bindSnap() {
+    bindLocalCards();
+    main.querySelectorAll('[data-engine]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        try { localStorage.setItem(ENGINE_KEY, b.dataset.engine); } catch (e) { /* ignore */ }
+        var h = document.getElementById('photoHint');
+        if (h) snap.hint = h.value;
+        render();
+      });
+    });
     ['photoCam', 'photoFile'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el) el.addEventListener('change', function () { startPhoto(el.files && el.files[0]); });
@@ -1037,6 +1253,33 @@
         rememberMeal('photoMeal');
         snap.items[Number(sel.dataset.pmatch)].slug = sel.value || null;
         render();
+      });
+    });
+    // Re-match an item by searching the whole list: the model's word for a
+    // dish ("curry") may not be the food it was ("dal").
+    main.querySelectorAll('[data-psearch]').forEach(function (inp) {
+      var i = Number(inp.dataset.psearch);
+      var box = main.querySelector('[data-psuggest="' + i + '"]');
+      inp.addEventListener('input', function () {
+        var q = inp.value.trim().toLowerCase();
+        if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+        var hits = FOODS.filter(function (f) { return haystack(f).indexOf(q) >= 0; })
+          .sort(function (a, b) { return logRank(b, q) - logRank(a, q) || a.name.length - b.name.length; })
+          .slice(0, 8);
+        box.hidden = !hits.length;
+        box.innerHTML = hits.map(function (f) {
+          return '<button type="button" data-pset="' + esc(f.slug) + '">' + esc(f.name) +
+            '<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span></button>';
+        }).join('');
+        box.querySelectorAll('[data-pset]').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var it = snap.items[i];
+            it.slug = b.dataset.pset;
+            if (it.candidates.indexOf(it.slug) < 0) it.candidates.unshift(it.slug);
+            rememberMeal('photoMeal');
+            render();
+          });
+        });
       });
     });
     main.querySelectorAll('[data-pgrams]').forEach(function (inp) {
@@ -1206,6 +1449,8 @@
       '<a href="' + esc(Gemini.STUDIO_URL) + '" rel="noopener" target="_blank">' + esc(t('get_free_key')) + '</a></div>' +
       '<p class="hint">' + esc(t('key_shared_warning')) + '</p></div>' +
 
+      (LocalModel ? '<div class="card pad settings-block local-card"></div>' : '') +
+
       '<div class="card pad settings-block"><h2>' + esc(t('profile_section')) + '</h2>' +
       '<p class="hint">' + esc(t('profile_lede')) + '</p>' +
       '<p>' + (prof
@@ -1227,6 +1472,7 @@
       '<button class="btn danger" type="button" id="clearBtn">' + esc(t('clear_btn')) + '</button></div></div>';
 
     logState.notice = '';
+    bindLocalCards();
 
     document.getElementById('keySave').addEventListener('click', function () {
       var k = document.getElementById('keyIn').value.trim();

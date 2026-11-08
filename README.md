@@ -21,6 +21,31 @@ rice at nearly three times the energy — and worked out from those figures. A m
 the energy density the model expected is flagged as probably the wrong form of the food.
 Nothing is logged until you have checked it.
 
+**On-device model** — instead of Gemini, Google's open **Gemma 4 E2B** can read the photo
+in the browser itself, through [Transformers.js](https://huggingface.co/docs/transformers.js)
+and WebGPU. No key, no daily limit, and the photo never leaves the device. It is a one-time
+download of about 3.4 GB (3.9 GB on GPUs without 16-bit shaders), kept in the browser's
+cache, and it needs WebGPU: recent Chrome and Edge, and Safari from iOS 26 / macOS 26.
+
+It also needs a GPU that allows a single 1.17 GB buffer, because that is the size of the
+model's per-layer embedding table. The obvious workaround — keeping that table on the CPU —
+is not available in the browser, because ONNX Runtime's web build has no CPU kernel for its
+4-bit lookup. Settings reads the GPU's limit before offering the download and says plainly
+when a device falls short, instead of letting the first photo fail. Native runtimes such as
+Google's LiteRT keep that table off the GPU, so a native app could run the same model on
+more phones than a browser can. With both set up, the
+Snap page lets you choose each time.
+
+It is asked exactly what Gemini is asked and goes through the same matching and review.
+Tested on a real thali photo, it reliably finds the rice, breads, raita and salad with
+sensible amounts, but tends to call every bowl "curry" rather than naming the dal or the
+kofta, and runs slower than Gemini. Each item on the review screen can be re-matched by
+searching the food list, so a vague "curry" becomes cooked lentils in two taps. Matching is
+guarded either way: a big portion is never matched to a spice, powder, flour or oil, and a
+match must be within a factor of two of the energy density the model expected. A reply
+with broken JSON — small models slip on syntax — is salvaged item by item rather than
+thrown away.
+
 **Measure to make it accurate** — a photo has no depth, and oil and sauces hide energy, so
 a photo estimate alone is good to about a third either way. Any item, on the review screen
 or after it is logged, can be measured:
@@ -72,8 +97,10 @@ The two sites live on the same origin (`just-rice.github.io`), and Food Log uses
 
 ## Privacy
 
-The log, profile and key stay in this browser. A meal photo is shrunk on your device and
-sent to Google with your key, and is not stored. A key in localStorage is readable by any
+The log, profile and key stay in this browser. With Gemini, a meal photo is shrunk on your
+device and sent to Google with your key, and is not stored. With the on-device model it
+never leaves the device; the only network traffic is the one-time model download from
+Hugging Face and the Transformers.js library from jsDelivr. A key in localStorage is readable by any
 script on the page, so do not save one on a shared computer. Free keys come from
 [Google AI Studio](https://aistudio.google.com/apikey).
 
@@ -95,8 +122,10 @@ index.html        page shell; loads Food is Medicine's data files
 css/style.css     Food is Medicine's stylesheet plus the log, photo and measuring styles
 js/app.js         hash router and the Today, Snap, History and Settings views
 js/tracker.js     the log: storage, totals, measuring, plate rescaling, import/export
-js/photo.js       photo -> foods and portion ranges, via Gemini
+js/photo.js       the photo prompt and reply parser, and the Gemini call
 js/gemini.js      Gemini client and key storage
+js/local-model.js the on-device engine: device check, download, load, read a photo
+js/local-worker.js  Web Worker running Gemma 4 E2B with Transformers.js 4.3.1 (WebGPU)
 js/profile.js     profile storage (copied from Food is Medicine)
 js/prefs.js       display and dietary preferences (copied from Food is Medicine)
 ```

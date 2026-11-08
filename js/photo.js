@@ -77,6 +77,10 @@
     lines.push('- Split a plate into its components where they are visibly separate (rice, ' +
       'dal, a roti, a salad). A dish that cannot be separated (a curry, a sandwich, a ' +
       'pizza slice) is one item.');
+    lines.push('- Give every item its most likely specific name ("dal", "chicken curry", ' +
+      '"mixed vegetable curry", "papad"), never a placeholder like "curry 1". If you ' +
+      'are unsure what it is, still name your best guess and set confidence to "low".');
+    lines.push('- Small bowls (katoris) on a thali hold about 100 to 150 g each.');
     lines.push('- If the food was very likely cooked in oil, ghee or butter, add the fat as ' +
       'its own item with an estimated amount. Hidden cooking fat is the commonest reason ' +
       'a calorie estimate is too low.');
@@ -98,7 +102,8 @@
     lines.push('If there is no food in the photo, return an empty "items" list and say so ' +
       'in "notes".');
     lines.push('');
-    lines.push('Reply with JSON only, in this shape: {"items": [{"name": "...", "search": ' +
+    lines.push('Reply with compact JSON only, on a single line with no spaces between ' +
+      'fields and no code fence, in this shape: {"items": [{"name": "...", "search": ' +
       '"...", "cooked": true, "grams": 0, "grams_low": 0, "grams_high": 0, ' +
       '"kcal_per_100g": 0, "confidence": "medium"}], "plate_cm": 26, "notes": "..."}');
     return lines.join('\n');
@@ -108,6 +113,29 @@
     v = Number(v);
     if (!isFinite(v) || v <= 0) return null;
     return Math.min(hi, Math.max(lo, v));
+  }
+
+  /**
+   * Rescue what can be read from a reply whose JSON is broken. Small models
+   * slip on syntax -- an extra bracket, a missing comma between items -- far
+   * more often than on content, and one stray character should not throw away
+   * a whole plate. Every complete, self-contained item object is kept; the
+   * plate size and notes are picked out on their own.
+   */
+  function salvage(body) {
+    var items = [];
+    (body.match(/\{[^{}]*\}/g) || []).forEach(function (o) {
+      try {
+        var x = JSON.parse(o);
+        if (x && typeof x.name === 'string') items.push(x);
+      } catch (e) { /* skip the broken one */ }
+    });
+    if (!items.length) return null;
+    var plate = /"plate_cm"\s*:\s*([\d.]+)/.exec(body);
+    var notes = /"notes"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(body);
+    var noteText = '';
+    if (notes) { try { noteText = JSON.parse('"' + notes[1] + '"'); } catch (e) { noteText = ''; } }
+    return { items: items, plate_cm: plate ? Number(plate[1]) : null, notes: noteText };
   }
 
   /**
@@ -121,10 +149,9 @@
     var data;
     try { data = JSON.parse(body); } catch (e) {
       var m = /\{[\s\S]*\}/.exec(body);
-      if (!m) throw new Error('The model did not reply in the expected format. Try again.');
-      try { data = JSON.parse(m[0]); } catch (e2) {
-        throw new Error('The model did not reply in the expected format. Try again.');
-      }
+      try { data = m ? JSON.parse(m[0]) : null; } catch (e2) { data = null; }
+      if (!data) data = salvage(body);
+      if (!data) throw new Error('The model did not reply in the expected format. Try again.');
     }
     var raw = Array.isArray(data) ? data : (data.items || []);
     var items = raw.slice(0, 12).map(function (it) {
