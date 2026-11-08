@@ -167,8 +167,19 @@ was weighed, estimated from a photo or energy-only, your dietary settings, and y
 
 **Install it** — Food Log is an installable web app (Settings → Install, or Add to Home
 Screen on iPhone). A service worker keeps the app and Food is Medicine's food data on the
-device, so search, the log, meals and History work offline; reading a photo, a description or
-a barcode needs a connection unless the on-device model is downloaded.
+device, so search, the log, meals and History work offline. Long-press the icon for **Snap a
+meal**, **Scan a barcode** and **Today**; on Android, **share a photo** from the gallery or
+camera straight into Snap (iPhone does not let web apps receive shares).
+
+**Offline photos** — with no connection, a photo or description is kept on the device
+(IndexedDB, never more than 30, never longer than two weeks) and read by Gemini once the
+connection returns, while Food Log is open; Today then offers it to check, on the day and meal
+it was taken. If the on-device model is downloaded, it reads the photo at once instead, and —
+unless you chose the on-device model on purpose, so a photo meant to stay on the phone never
+leaves it — Food Log offers to read it again with Gemini (Flash-Lite first) when you are back
+online. That better reading waits on Today until you compare it: replacing removes the photo's
+entries nobody weighed and keeps the ones you did. Readings that keep failing can be retried
+or removed. Barcodes need a connection.
 
 **Meal reminders (optional)** — Settings makes a calendar file with a daily reminder for each
 meal you tick, at your times, for your own calendar app. Food Log sends no notifications and
@@ -277,10 +288,11 @@ js/sync.js        optional Google sign-in sync through Firestore
 js/barcode.js     camera scanning, check digits, Open Food Facts lookup and allergen mapping
 js/library.js     saved meals, recipes and supplements, recipe nutrition, merge for sync
 js/memory.js      what Food Log learns from corrections: matches and portion factors
+js/queue.js       meals waiting to be read: offline, shared, and on-device readings to redo
 js/gaps.js        the week's low nutrients, the foods suggested for them, plant variety
 js/csv.js         the log as spreadsheet files
 js/pwa.js         service-worker registration, online state, install prompt, .ics reminders
-sw.js             the service worker (offline app shell and food data)
+sw.js             the service worker (offline app shell and food data; receives shared photos)
 manifest.webmanifest, icons/   the installable app
 tests/            unit tests, browser suites (tests/e2e), shared harness (tests/lib),
                   fixtures, and the 20 real model replies the matcher test uses

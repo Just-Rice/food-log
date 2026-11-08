@@ -7,6 +7,7 @@
 //   Food is Medicine's data files and photos     cached copy now, refresh behind
 //   pinned library versions (Firebase, jsDelivr) cache first
 //   everything else                              left to the browser
+//   POST ./share (a photo shared to the app)     kept for the page, see below
 //
 // "Everything else" covers the photo and barcode APIs, Firebase, reCAPTCHA and
 // the on-device model's files from huggingface.co. Those are live calls or,
@@ -58,6 +59,7 @@ var SHELL = [
   'js/local-model.js',
   'js/library.js',
   'js/memory.js',
+  'js/queue.js',
   'js/gaps.js',
   'js/csv.js',
   'js/barcode.js',
@@ -127,6 +129,11 @@ self.addEventListener('activate', function (event) {
 
 self.addEventListener('fetch', function (event) {
   var req = event.request;
+  // A photo shared to the installed app (manifest share_target).
+  if (req.method === 'POST' && req.url.split(/[?#]/)[0] === abs('share')) {
+    event.respondWith(receiveShare(req));
+    return;
+  }
   // Uploads and API posts, and range requests (media, large model files),
   // go straight to the network. The last test avoids a Chrome DevTools quirk
   // that otherwise throws inside fetch().
@@ -201,5 +208,40 @@ function cacheFirst(event, name) {
   var req = event.request;
   return fromCache(name, req).then(function (hit) {
     return hit || fetch(req).then(function (res) { return keep(event, name, req, res); });
+  });
+}
+
+// ---- sharing a photo into the app ---------------------------------------------
+// The share sheet POSTs the photo here. It goes into the page's queue
+// (js/queue.js, IndexedDB 'foodlog-queue') and the app opens on Snap, which
+// reads it at once -- or, offline, keeps it to read later. Nothing is sent
+// anywhere from here.
+
+function receiveShare(req) {
+  var snapUrl = abs('./#/snap');
+  return req.formData().then(function (form) {
+    var files = form.getAll('photo').filter(function (f) {
+      return f && typeof f !== 'string' && /^image\//.test(f.type || '');
+    });
+    if (!files.length) return Response.redirect(snapUrl, 303);
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    return queuePut({ id: id, kind: 'photo', blob: files[0], shared: true, status: 'shared', createdAt: Date.now() })
+      .then(function () { return Response.redirect(abs('./#/snap?shared=' + id), 303); });
+  }).catch(function () { return Response.redirect(snapUrl, 303); });
+}
+
+function queuePut(rec) {
+  return new Promise(function (resolve, reject) {
+    var open = indexedDB.open('foodlog-queue', 1);
+    open.onupgradeneeded = function () {
+      if (!open.result.objectStoreNames.contains('items')) open.result.createObjectStore('items', { keyPath: 'id' });
+    };
+    open.onerror = function () { reject(open.error); };
+    open.onsuccess = function () {
+      var db = open.result, t = db.transaction('items', 'readwrite');
+      t.objectStore('items').put(rec);
+      t.oncomplete = function () { db.close(); resolve(); };
+      t.onerror = function () { db.close(); reject(t.error); };
+    };
   });
 }

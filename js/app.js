@@ -55,6 +55,17 @@
     plants_unknown: 'Typed-in, scanned and unmatched photo entries are not counted, since the food behind them is not known.',
     plants_note: 'Vegetables, fruit, pulses, grains, nuts, seeds, herbs, spices and mushrooms each count once, however they were cooked. A wider range of plants is linked to a more varied gut microbiome (American Gut Project, McDonald et al., 2018).',
     report_plants: 'Different plant foods',
+    queue_offline: 'You’re offline. Take or choose the photo, or describe the meal, now: it is kept on this device and read when you’re back online, while Food Log is open.',
+    queue_saved: 'Saved. It will be read when you’re back online, while Food Log is open.',
+    queue_title: 'Waiting to be read', queue_waiting: '{n} waiting to be read when you’re back online.',
+    queue_reading: '{n} being read…', queue_ready: 'A {what} from {day} is ready to check.',
+    queue_better: 'A better reading of the {what} you logged {day} is ready.',
+    queue_failed: 'A {what} from {day} could not be read: {msg}', queue_photo: 'photo', queue_text: 'description',
+    queue_check: 'Check it', queue_compare: 'Compare', queue_retry: 'Try again', queue_remove: 'Remove',
+    queue_upgrade: 'When I’m back online, read it again with Gemini and offer the better reading',
+    replace_note: 'This is Gemini’s reading of a photo you logged {day} with the on-device model. Replacing removes that photo’s entries you have not weighed or measured; those you have stay.',
+    replace_btn: 'Replace with this reading', keep_local: 'Keep the on-device reading',
+    replaced_notice: 'Replaced with the better reading.',
     your_usual: 'your usual', taught_match: 'Matched the way you chose last time.',
     usual_hint: 'Scaled to your usual portion: {pct}% of the reader’s guess, from the {n} times you measured it.',
     usual_hint_one: 'Scaled to your usual portion: {pct}% of the reader’s guess, from the one time you measured it.',
@@ -1123,6 +1134,7 @@
       '<div class="page-head"><h1>' + esc(t('log_title')) + '</h1>' +
       '<p>' + esc(t('log_lede')) + '</p></div>' +
       (logState.notice ? '<div class="note"><p>' + esc(logState.notice) + '</p></div>' : '') +
+      queuePanel() +
 
       '<div class="log-date">' +
       '<button class="btn ghost" type="button" id="dayPrev" aria-label="' +
@@ -1614,6 +1626,7 @@
       });
     });
     if (window.Library) bindTakeSupp(logState.date);
+    bindQueue();
     main.querySelectorAll('[data-edit-entry]').forEach(function (b) {
       b.addEventListener('click', function () {
         logState.editing = logState.editing === b.dataset.editEntry ? null : b.dataset.editEntry;
@@ -2052,7 +2065,10 @@
 
   function snapBody() {
     var engine = engineChoice();
-    if (!engine && snap.status !== 'review' && window.PWA && !window.PWA.online()) {
+    var offline = window.PWA && !window.PWA.online();
+    // Offline with no on-device model: take the photo now, read it later.
+    if (!engine && offline && window.Queue) engine = 'queue';
+    if (!engine && snap.status !== 'review' && offline) {
       return '<div class="note warn"><p>' + esc(t('offline_snap')) + '</p></div>';
     }
     if (!engine && snap.status !== 'review') {
@@ -2076,7 +2092,9 @@
     if (snap.status === 'review') return snapReview();
 
     var engines = engineList();
-    return '<div class="card pad">' +
+    return queuePanel() + (engine === 'queue' ? '<div class="note warn"><p>' + esc(t('queue_offline')) + '</p></div>' : '') +
+      (snap.notice ? '<div class="note"><p>' + esc(snap.notice) + '</p></div>' : '') +
+      '<div class="card pad">' +
       (engines.length > 1
         ? '<div class="field" style="margin-bottom:12px"><span class="label-text">' + esc(t('engine_label')) + '</span>' +
           '<div class="chips" role="group" aria-label="' + esc(t('engine_label')) + '">' +
@@ -2112,7 +2130,8 @@
       '<input type="file" accept="image/*" id="photoFile" hidden></label></div>' +
       '<p class="hint" style="margin-top:10px">' + esc(t('card_tip')) + '</p>' +
       '<p class="hint" style="margin-top:10px">' +
-      esc(engine === 'local' ? t('snap_local_privacy') + ' ' + t('snap_local_slow')
+      esc(engine === 'queue' ? t('queue_saved').replace(/^Saved\. /, '')
+        : engine === 'local' ? t('snap_local_privacy') + ' ' + t('snap_local_slow')
         : engine === 'free' ? t('snap_free_privacy') : t('snap_privacy')) +
       '</p></div>');
   }
@@ -2177,10 +2196,12 @@
     if (!text) return;
     stopListening();
     var engine = opts.engine || engineChoice();
+    if (!engine && window.Queue && window.PWA && !PWA.online()) return queueCapture({ text: text });
     if (!engine) return;
     var before = opts.only ? snap : null;
+    var offlineRead = engine === 'local' && !!window.PWA && !PWA.online();
     snap = { status: 'busy', dataUrl: '', hint: snap.hint, engine: engine, localStatus: null,
-             only: opts.only || null, text: text };
+             only: opts.only || null, text: text, offlineRead: offlineRead };
     render();
     var popts = { model: opts.only || undefined, diet: dietOpts() };
     if (engine === 'key' && !popts.model && Gemini.getPreference() !== Gemini.AUTO) popts.model = Gemini.getPreference();
@@ -2196,13 +2217,192 @@
       snap = {
         status: 'review', dataUrl: '', notes: res.notes, hint: snap.hint, engine: engine,
         model: res.model || null, text: text, scale: '', plateCm: null,
-        items: prepareItems(res.items), photoId: Tracker.newId()
+        items: prepareItems(res.items), photoId: Tracker.newId(),
+        offlineRead: snap.offlineRead, upgrade: snap.offlineRead && enginePref() !== 'local'
       };
     }).catch(function (err) {
       var msg = err && err.message ? err.message : String(err);
       if (before) { snap = before; snap.strongerError = t('stronger_failed', { msg: msg }); }
       else snap = { status: 'error', error: msg, errorCode: err && err.code, hint: snap.hint, text: text };
     }).then(function () { if (route.name === 'snap') render(); });
+  }
+
+  // ---- the queue: read later, read again (js/queue.js) ---------------------
+  var queueItems = [];        // the queue's records, kept here so pages can draw them at once
+  var queueBusy = null;       // id of the record being read
+  var queueRetryAt = 0;
+
+  function refreshQueue() {
+    if (!window.Queue) return Promise.resolve();
+    return Queue.all().then(function (list) {
+      var sig = function (l) { return JSON.stringify(l.map(function (r) { return [r.id, r.status, r.error || '', r.attempts || 0]; })); };
+      var changed = sig(queueItems) !== sig(list);
+      queueItems = list;
+      if (changed) redrawQueue();
+    }).catch(function () { /* the queue is optional */ });
+  }
+
+  /**
+   * Redraw only the queue panel, in place, so a notice or a half-typed entry
+   * elsewhere on the page is left alone.
+   */
+  function redrawQueue() {
+    if (route.name !== 'today' && route.name !== 'snap') return;
+    if (route.name === 'snap' && (snap.status === 'busy' || snap.status === 'review')) return;
+    var html = queuePanel(), el = main.querySelector('.queue-card');
+    if (el) {
+      if (html) el.outerHTML = html; else el.remove();
+    } else if (html) {
+      var anchor = route.name === 'today' ? main.querySelector('.log-date') : main.querySelector('#main > .note, #main > .card');
+      if (!anchor) return;
+      anchor.insertAdjacentHTML('beforebegin', html);
+    }
+    bindQueue();
+  }
+
+  /** Keep a photo or description to read once back online. */
+  function queueCapture(what) {
+    var hintEl = document.getElementById('photoHint');
+    var base = { hint: hintEl ? hintEl.value : snap.hint || '', date: logState.date || Tracker.today(),
+                 meal: currentMeal(), status: 'waiting' };
+    var job = what.text
+      ? Queue.add(Object.assign(base, { kind: 'text', text: what.text }))
+      : Photo.prepare(what.file).then(function (img) { return Queue.add(Object.assign(base, { kind: 'photo', dataUrl: img.dataUrl })); });
+    return job.then(function () {
+      snap = { status: null, hint: '', notice: t('queue_saved') };
+      if (route.name === 'snap') render();
+    }, function (err) {
+      snap = { status: 'error', error: err && err.message ? err.message : String(err), hint: snap.hint };
+      if (route.name === 'snap') render();
+    });
+  }
+
+  /** The engine queued meals are read with: Gemini, free first (Flash-Lite leads its list). */
+  function queueEngine() {
+    var list = engineList();
+    if (enginePref() === 'key' && list.indexOf('key') >= 0) return Gemini.engine;
+    if (list.indexOf('free') >= 0) return FirebaseEngine.engine;
+    if (list.indexOf('key') >= 0) return Gemini.engine;
+    return null;
+  }
+
+  /** Read the next waiting or provisional record, one at a time, while online. */
+  function runQueue() {
+    if (!window.Queue || queueBusy || Date.now() < queueRetryAt) return;
+    if (window.PWA && !PWA.online()) return;
+    var engine = queueEngine();
+    if (!engine) return;
+    Queue.all().then(function (list) {
+      var rec = list.filter(function (r) {
+        return (r.status === 'waiting' || r.status === 'provisional') && (r.attempts || 0) < 3;
+      })[0];
+      if (!rec || queueBusy) return;
+      queueBusy = rec.id;
+      refreshQueue();
+      var opts = { hint: rec.hint || '', diet: dietOpts() };
+      var job = rec.kind === 'text'
+        ? Photo.analyseText(engine, rec.text, opts)
+        : Photo.analyseWith(engine, Queue.blobOf(rec), opts);
+      return job.then(function (res) {
+        return Queue.update(rec.id, {
+          status: rec.status === 'provisional' ? 'better' : 'ready', error: undefined,
+          result: { items: res.items, notes: res.notes || '', plateCm: res.plateCm || null, scale: res.scale || '',
+                    model: res.model || null, dataUrl: res.dataUrl || rec.dataUrl || '' }
+        });
+      }, function (err) {
+        // Out of quota or rate-limited: try again in a while, not now.
+        if (err && (err.code === 'ALL_SPENT' || err.code === 'RATE_LIMITED' || err.timeout)) {
+          queueRetryAt = Date.now() + 10 * 60 * 1000;
+          setTimeout(runQueue, 10 * 60 * 1000 + 1000);
+          return null;
+        }
+        return Queue.update(rec.id, { attempts: (rec.attempts || 0) + 1, error: err && err.message ? err.message : String(err) });
+      }).then(function () {
+        queueBusy = null;
+        refreshQueue();
+        setTimeout(runQueue, 300);
+      });
+    }).catch(function () { queueBusy = null; });
+  }
+
+  function queueWhat(r) { return t(r.kind === 'text' ? 'queue_text' : 'queue_photo'); }
+
+  /** What the queue holds, for the top of Snap and Today. */
+  function queuePanel() {
+    if (!window.Queue || !queueItems.length) return '';
+    var waiting = queueItems.filter(function (r) { return r.status === 'waiting' || r.status === 'provisional'; });
+    var failed = waiting.filter(function (r) { return r.error && (r.attempts || 0) >= 3; });
+    var pending = waiting.filter(function (r) { return failed.indexOf(r) < 0; });
+    var ready = queueItems.filter(function (r) { return r.status === 'ready' || r.status === 'better'; });
+    if (!pending.length && !ready.length && !failed.length) return '';
+    var day = function (r) { return dayLabel(r.date || Tracker.today()).toLowerCase(); };
+    return '<div class="card pad queue-card"><strong>' + esc(t('queue_title')) + '</strong>' +
+      ready.map(function (r) {
+        var thumb = r.result && r.result.dataUrl ? '<img class="q-thumb" src="' + esc(r.result.dataUrl) + '" alt="">' : '';
+        return '<div class="q-row">' + thumb + '<p>' + esc(t(r.status === 'better' ? 'queue_better' : 'queue_ready', { what: queueWhat(r), day: day(r) })) +
+          '</p><button class="btn small" type="button" data-q-open="' + esc(r.id) + '">' +
+          esc(t(r.status === 'better' ? 'queue_compare' : 'queue_check')) + '</button></div>';
+      }).join('') +
+      failed.map(function (r) {
+        return '<div class="q-row"><p class="warn-text">' + esc(t('queue_failed', { what: queueWhat(r), day: day(r), msg: r.error })) + '</p>' +
+          '<button class="btn ghost small" type="button" data-q-retry="' + esc(r.id) + '">' + esc(t('queue_retry')) + '</button>' +
+          '<button class="btn ghost small" type="button" data-q-remove="' + esc(r.id) + '">' + esc(t('queue_remove')) + '</button></div>';
+      }).join('') +
+      (pending.length
+        ? '<p class="hint">' + esc(t(!window.PWA || PWA.online() ? 'queue_reading' : 'queue_waiting', { n: pending.length })) + '</p>'
+        : '') + '</div>';
+  }
+
+  function bindQueue() {
+    main.querySelectorAll('[data-q-open]').forEach(function (b) {
+      b.addEventListener('click', function () { openQueued(b.dataset.qOpen); });
+    });
+    main.querySelectorAll('[data-q-retry]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        Queue.update(b.dataset.qRetry, { attempts: 0, error: undefined }).then(function () { queueRetryAt = 0; runQueue(); });
+      });
+    });
+    main.querySelectorAll('[data-q-remove]').forEach(function (b) {
+      b.addEventListener('click', function () { Queue.remove(b.dataset.qRemove); });
+    });
+  }
+
+  /** Open a queued reading on the review screen. */
+  function openQueued(id) {
+    Queue.get(id).then(function (r) {
+      if (!r || !r.result) return;
+      var blob = r.kind === 'photo' ? Queue.blobOf(r) : null;
+      var file = blob ? new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' }) : null;
+      snap = {
+        status: 'review', dataUrl: r.result.dataUrl || r.dataUrl || '', notes: r.result.notes, hint: r.hint || '',
+        engine: queueEngine() === Gemini.engine ? 'key' : 'free', model: r.result.model, file: file, text: r.kind === 'text' ? r.text : '',
+        scale: r.result.scale || '', plateCm: r.result.plateCm, items: prepareItems(r.result.items), photoId: Tracker.newId(),
+        queueId: r.id, queueDate: r.date, queueMeal: r.meal,
+        replace: r.status === 'better' ? { date: r.date, entryIds: r.entryIds || [] } : null
+      };
+      if (r.meal) logState.meal = r.meal;
+      if (route.name !== 'snap') location.hash = '#/snap'; else render();
+    });
+  }
+
+  /** A photo shared to the installed app (sw.js put it in the queue). */
+  function handleShared(id) {
+    if (!window.Queue) return;
+    Queue.get(id).then(function (r) {
+      if (!r || !r.blob) return;
+      var file = new File([r.blob], r.blob.name || 'shared.jpg', { type: r.blob.type || 'image/jpeg' });
+      snapMode = 'photo';
+      if (engineChoice()) {
+        Queue.remove(id);
+        startPhoto(file);
+      } else {
+        // Offline with no on-device model: read it once back online.
+        Queue.update(id, { status: 'waiting', date: Tracker.today(), meal: Tracker.guessMeal() }).then(function () {
+          snap = { status: null, hint: '', notice: t('queue_saved') };
+          render();
+        });
+      }
+    });
   }
 
   function localStatusText(s) {
@@ -2237,6 +2437,7 @@
         : '') +
       '</div></div>' +
       (snap.strongerError ? '<div class="note warn"><p>' + esc(snap.strongerError) + '</p></div>' : '') +
+      (snap.replace ? '<div class="note"><p>' + esc(t('replace_note', { day: dayLabel(snap.replace.date).toLowerCase() })) + '</p></div>' : '') +
       ((Prefs.get().allergens || []).length
         ? '<p class="hint warn-text">' + esc(t('allergy_disclaimer')) + '</p>' : '') +
       // A card in the photo is a better scale than any plate size typed in.
@@ -2248,14 +2449,18 @@
         : '<p class="empty" style="padding:16px 0">' + esc(t('snap_nothing')) + '</p>') +
       '<div class="field-row" style="margin-top:14px">' +
       '<div class="field"><label for="photoMeal">' + esc(t('meal')) + '</label>' +
-      mealSelect('photoMeal', currentMeal()) + '</div>' +
+      mealSelect('photoMeal', snap.queueMeal || currentMeal()) + '</div>' +
       '<div class="field"><label for="photoDate">' + esc(t('choose_day')) + '</label>' +
-      '<input id="photoDate" type="date" value="' + esc(logState.date || Tracker.today()) +
+      '<input id="photoDate" type="date" value="' + esc(snap.queueDate || logState.date || Tracker.today()) +
       '" max="' + esc(Tracker.today()) + '"></div></div>' +
+      (snap.offlineRead && enginePref() !== 'local' && window.Queue
+        ? '<label class="toggle-row" style="margin:0 0 12px;font-weight:400"><input type="checkbox" id="photoUpgrade"' +
+          (snap.upgrade ? ' checked' : '') + '> ' + esc(t('queue_upgrade')) + '</label>'
+        : '') +
       '<div class="btn-row">' +
       '<button class="btn" type="button" id="photoAdd"' + (nIn ? '' : ' disabled') + '>' +
-      esc(t('add_to_log')) + '</button>' +
-      '<button class="btn ghost" type="button" id="photoDiscard">' + esc(t('discard')) +
+      esc(snap.replace ? t('replace_btn') : t('add_to_log')) + '</button>' +
+      '<button class="btn ghost" type="button" id="photoDiscard">' + esc(snap.replace ? t('keep_local') : t('discard')) +
       '</button></div></div>';
   }
 
@@ -2335,10 +2540,12 @@
     var hintEl = document.getElementById('photoHint');
     if (hintEl) snap.hint = hintEl.value;
     var engine = opts.engine || engineChoice();
+    if (!engine && window.Queue && window.PWA && !PWA.online()) return queueCapture({ file: file });
     if (!engine) return;
     var before = opts.only ? snap : null;   // kept if the stronger model fails
+    var offlineRead = engine === 'local' && !!window.PWA && !PWA.online();
     snap = { status: 'busy', dataUrl: before ? before.dataUrl : '', hint: snap.hint, engine: engine,
-             localStatus: null, only: opts.only || null, file: file };
+             localStatus: null, only: opts.only || null, file: file, offlineRead: offlineRead };
     // Show the picture straight away so the wait has something to look at.
     if (!before) {
       Photo.prepare(file).then(function (img) {
@@ -2363,7 +2570,8 @@
       snap = {
         status: 'review', dataUrl: res.dataUrl, notes: res.notes, hint: snap.hint, engine: engine,
         model: res.model || null, file: file, scale: res.scale || '',
-        plateCm: res.plateCm, items: prepareItems(res.items), photoId: Tracker.newId()
+        plateCm: res.plateCm, items: prepareItems(res.items), photoId: Tracker.newId(),
+        offlineRead: snap.offlineRead, upgrade: snap.offlineRead && enginePref() !== 'local'
       };
     }).catch(function (err) {
       var msg = err && err.message ? err.message : String(err);
@@ -2380,11 +2588,13 @@
 
   function bindSnap() {
     bindLocalCards();
+    bindQueue();
     main.querySelectorAll('[data-snap-mode]').forEach(function (b) {
       b.addEventListener('click', function () {
         var box = document.getElementById('describeText');
         if (box) snap.text = box.value;
         stopListening();
+        snap.notice = '';
         snapMode = b.dataset.snapMode;
         render();
       });
@@ -2515,8 +2725,20 @@
       var dateEl = document.getElementById('photoDate');
       var date = dateEl && /^\d{4}-\d{2}-\d{2}$/.test(dateEl.value) && dateEl.value <= Tracker.today()
         ? dateEl.value : Tracker.today();
+      // A better reading replaces the photo's entries nobody measured.
+      var kept = [];
+      if (snap.replace) {
+        snap.replace.entryIds.forEach(function (id) {
+          var e = Tracker.find(snap.replace.date, id);
+          if (!e) return;
+          if (e.measured) kept.push(e.slug || e.name); else Tracker.remove(snap.replace.date, id);
+        });
+        if (date !== snap.replace.date) date = snap.replace.date;
+      }
+      var added = [];
       snap.items.forEach(function (it) {
         if (!it.include) return;
+        if (kept.indexOf(it.slug || it.name) >= 0) return;
         if (window.Memory) {
           if (it.rematched) Memory.learnMatch(it.name, it.slug || '');
           if (it.measured && it.modelGrams) Memory.learnPortion(it.name, it.grams, it.modelGrams);
@@ -2530,15 +2752,26 @@
         };
         if (food) base.food = food;
         else { base.name = it.name; base.per100 = { kcal: it.kcalPer100 || 0 }; }
-        Tracker.add(date, base);
+        var e = Tracker.add(date, base);
+        if (e) added.push(e.id);
       });
+      var up = document.getElementById('photoUpgrade');
+      if (up && up.checked && window.Queue && added.length) {
+        Queue.add({ kind: snap.text && !snap.file ? 'text' : 'photo', dataUrl: snap.dataUrl || '', text: snap.text || '',
+                    hint: snap.hint || '', date: date, meal: logState.meal || currentMeal(), status: 'provisional', entryIds: added });
+      }
+      if (snap.queueId && window.Queue) Queue.remove(snap.queueId);
+      if (snap.replace) logState.notice = t('replaced_notice');
       snap = { status: null, hint: '' };
       location.hash = '#/today/' + date;
     });
     document.getElementById('photoDiscard').addEventListener('click', function () {
+      if (snap.queueId && window.Queue) Queue.remove(snap.queueId);
       snap = { status: null, hint: '' };
       render();
     });
+    var upg = document.getElementById('photoUpgrade');
+    if (upg) upg.addEventListener('change', function () { snap.upgrade = upg.checked; });
   }
 
   // ======================================================================
@@ -3030,8 +3263,10 @@
     if (!NAV.some(function (n) { return n[0] === name; }) && name !== 'report') name = 'today';
     var add = /(?:^|&)add=([^&]+)/.exec(query);
     var g = /(?:^|&)g=(\d+)/.exec(query);
+    var shared = /(?:^|&)shared=([\w-]+)/.exec(query);
     return { name: name, arg: parts[1] || null, add: add ? decodeURIComponent(add[1]) : null,
-             grams: g ? Number(g[1]) : null };
+             grams: g ? Number(g[1]) : null, shared: shared ? shared[1] : null,
+             scan: /(?:^|&)scan=1/.test(query) };
   }
 
   function renderNav() {
@@ -3056,6 +3291,7 @@
     stopListening();
     var prev = route.name;
     route = parseRoute();
+    if (route.name !== prev && snap.notice) snap.notice = '';
     if (route.name === 'today' && !route.arg) logState.date = Tracker.today();
     logState.pick = route.name === prev ? logState.pick : null;
     if (route.add && FOOD_BY_SLUG[route.add]) {
@@ -3064,7 +3300,13 @@
       history.replaceState(null, '', '#/today');
       route.add = null;
     }
+    if (route.shared) { var sid = route.shared; route.shared = null; history.replaceState(null, '', '#/snap'); handleShared(sid); }
     render();
+    if (route.scan && route.name === 'today' && window.Barcode) {
+      route.scan = false;
+      history.replaceState(null, '', '#/today');
+      openScanner();
+    }
     var pg = route.name === 'today' && logState.pick && document.getElementById('pickGrams');
     if (pg) pg.scrollIntoView({ block: 'center' });
     if (route.name !== prev) window.scrollTo(0, 0);
@@ -3080,10 +3322,17 @@
   if (Tracker.importedFrom()) logState.notice = t('imported_legacy');
 
   window.addEventListener('hashchange', onHash);
+  if (window.Queue) {
+    Queue.onChange(refreshQueue);
+    refreshQueue().then(runQueue);
+    // The service worker may have added a shared photo while the page was open.
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshQueue().then(runQueue); });
+  }
   // Hide calories switched on another device and applied by sync.
   window.addEventListener('foodlog:display', function () { render(); });
   if (window.PWA && PWA.onChange) {
     PWA.onChange(function () {
+      runQueue();
       if (route.name === 'snap' && snap.status !== 'busy') render();
       else if (route.name === 'settings') render();
     });
