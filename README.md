@@ -107,6 +107,14 @@ Google's LiteRT keep that table off the GPU, so a native app could run the same 
 more phones than a browser can. A reply with broken JSON — small models slip on syntax — is
 salvaged item by item rather than thrown away.
 
+**Supplements** (on the Meals page) — save a tablet from its label: amounts per dose, with
+conversions for older labels (vitamin D and A in IU, vitamin E in natural or synthetic IU;
+folic acid counted as 1.7 µg DFE). One taken every day is offered on Today as a one-tap
+"Taken today?" chip, never logged for you. Supplements count toward the day's vitamins and
+minerals, and the upper limits that apply only to supplements and fortified foods — preformed
+vitamin A, vitamin E, niacin, B6, folic acid, magnesium — are checked against what the
+supplements gave, never against food. Food Log does not advise whether to take one.
+
 **Measure to make it accurate** — a photo has no depth, and oil and sauces hide energy, so
 a photo estimate alone is good to about a third either way. Any item, on the review screen
 or after it is logged, can be measured:
@@ -135,9 +143,13 @@ days' average against your reference intakes.
 History lists the nutrients that averaged under 70% of your reference intake, each with foods
 from the list that are rich in it per everyday portion (cooked lentils rather than dry, 30 g
 of seeds rather than a cup, no spices, oils or powders, never a food your dietary settings
-exclude, and never liver for vitamin A). Limits exceeded on three or more days are mentioned.
+exclude, never liver for vitamin A, and no game, processed meat or high-mercury fish). Limits exceeded on three or more days are mentioned.
 It is about nutrients, never about eating more or less, and says when typed-in entries leave
 part of the week uncounted.
+
+**Plants this week** — how many different plant foods the week's log holds (vegetables,
+fruit, pulses, grains, nuts, seeds, herbs, spices and mushrooms, each once however it was
+cooked, recipes counted by their ingredients), shown without a target.
 
 **Report** — a printable summary of 7, 14 or 30 days for an appointment: days logged,
 averages, the energy chart, vitamins and minerals against your reference intakes, how much
@@ -254,8 +266,8 @@ js/local-model.js the on-device engine: device check, download, load, read a pho
 js/local-worker.js  Web Worker running Gemma 4 E2B with Transformers.js 4.3.1 (WebGPU)
 js/sync.js        optional Google sign-in sync through Firestore
 js/barcode.js     camera scanning, check digits, Open Food Facts lookup and allergen mapping
-js/library.js     saved meals and recipes, recipe nutrition, merge for sync
-js/gaps.js        the week's low nutrients and the foods suggested for them
+js/library.js     saved meals, recipes and supplements, recipe nutrition, merge for sync
+js/gaps.js        the week's low nutrients, the foods suggested for them, plant variety
 js/csv.js         the log as spreadsheet files
 js/pwa.js         service-worker registration, online state, install prompt, .ics reminders
 sw.js             the service worker (offline app shell and food data)

@@ -58,7 +58,24 @@ check(G.kindOf({ name: 'Mushrooms, brown' }) === G.kindOf({ name: 'White mushroo
   G.kindOf({ name: 'Hummus' }) === 'hummus' && G.kindOf({ name: 'Strawberries' }) === 'strawberry', 'kinds are singular');
 const d = G.suggest('vitd', FOODS, 20, null, 10);
 check(d.filter((s) => G.kindOf(s.food) === 'mushroom').length <= 1, 'vitamin D: one mushroom, not three: ' + d.map((s) => s.food.name).join(', '));
-check(iron.every((s) => /^1 |^\d+ g$/.test(s.label)), 'portion labels read "1 cup" or grams: ' + iron.map((s) => s.label).join(', '));
+check(iron.every((s) => /^\d/.test(s.label) && !/^1 \d/.test(s.label) && !/yield/.test(s.label)), 'portion labels read "1 cup", "4 oz" or grams: ' + iron.map((s) => s.label).join(', '));
+
+// Everyday foods only: no game, processed meat or high-mercury fish.
+const all = ['iron', 'vitd', 'b12', 'calcium', 'selenium'].flatMap((k) => G.suggest(k, FOODS, { iron: 18, vitd: 15, b12: 2.4, calcium: 1000, selenium: 55 }[k], null, 8));
+check(!all.some((s) => /swordfish|shark|king mackerel|marlin|tilefish|orange roughy|bigeye/i.test(s.food.name) ||
+  (s.food.tags || []).some((t) => t === 'game' || t === 'processed meat')), 'no game, processed meat or high-mercury fish: ' + [...new Set(all.map((s) => s.food.name))].join(', '));
+const hum = G.suggest('magnesium', FOODS, 420, null, 10).find((s) => /hummus/i.test(s.food.name));
+check(!hum || hum.grams <= 60, 'hummus by the spoonful, not the cup');
+// Supplement-only limits are checked against supplements, not food.
+const sup = G.analyse([day({ magnesium: 600 }), day({ magnesium: 600 }), day({ magnesium: 600 })], targets, { magnesium: { value: 350, supplementOnly: true } });
+check(!sup.over.length, 'magnesium from food above 350 mg is not flagged');
+const sup2 = G.analyse([day({ supp: { magnesium: 400 } }), day({ supp: { magnesium: 400 } }), day({ supp: { magnesium: 400 } })], targets, { magnesium: { value: 350, supplementOnly: true } });
+check(sup2.over.length === 1 && sup2.over[0].supplementOnly, 'supplements above it on 3 days are');
+// Plant variety.
+const bySlug = Object.fromEntries(FOODS.map((f) => [f.slug, f]));
+const pv = G.plants([{ slug: 'spinachcooked' }, { slug: 'ricewhitecooked' }, { slug: 'lentilscooked' }, { slug: 'yogurtplain' },
+  { source: 'recipe', slugs: ['lentilscooked', 'banana'] }, { name: 'Takeaway', fixed: { kcal: 500 } }, { source: 'supplement', amounts: {} }], bySlug);
+check(pv.count === 4 && pv.unknown === 1, 'plants: spinach, rice, lentils, banana (yogurt is not a plant; lentils once): ' + pv.kinds.map((k) => k.kind).join(', '));
 
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);

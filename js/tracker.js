@@ -41,6 +41,15 @@
   // A day's grams are capped so a mistyped "15000" cannot wreck a week's chart.
   var MAX_GRAMS = 5000;
 
+  // What a supplement can list: vitamins and minerals, in the units the
+  // reference intakes use. `folicAcid` is the folic-acid part of folate (µg),
+  // kept apart because only it has an upper limit; folate itself is in µg DFE.
+  var MICROS = ['vita', 'vitc', 'vitd', 'vite', 'vitk', 'thiamin', 'riboflavin', 'niacin',
+                'pantothenic', 'b6', 'folate', 'b12', 'choline',
+                'calcium', 'iron', 'magnesium', 'phosphorus', 'potassium', 'sodium', 'zinc',
+                'copper', 'manganese', 'selenium'];
+  var MAX_DOSES = 20;
+
   // How long a deletion is remembered. A tombstone only matters until every
   // device has seen it; one away for longer than this may bring an entry back.
   var TOMBSTONE_DAYS = 90;
@@ -83,6 +92,9 @@
     if (!e || typeof e.id !== 'string' || typeof e.name !== 'string') return false;
     if (MEALS.indexOf(e.meal) < 0) return false;
     if (e.updatedAt != null && !isNum(e.updatedAt)) return false;
+    if (e.source === 'supplement') {
+      return isMap(e.amounts) && isNum(e.doses) && e.doses > 0 && e.doses <= MAX_DOSES;
+    }
     if (e.fixed) return typeof e.fixed === 'object' && isNum(e.fixed.kcal);
     return !!e.per100 && typeof e.per100 === 'object' && isNum(e.per100.kcal) &&
       isNum(e.grams) && e.grams > 0 && e.grams <= MAX_GRAMS;
@@ -217,6 +229,9 @@
    * how much energy they leave uncounted rather than treating them as zero.
    */
   function isComplete(e) {
+    // A supplement lists what it contains; what it does not list it does not
+    // contain, so nothing is left uncounted.
+    if (e.source === 'supplement') return true;
     // A recipe's figures are summed from its USDA ingredients, so it carries
     // the full profile even though no single food record stands behind it.
     return !e.fixed && (!!e.slug || e.source === 'recipe') && e.per100 && e.per100.iron != null;
@@ -229,6 +244,11 @@
    */
   function nutrientsOf(e) {
     var out = {};
+    if (e.source === 'supplement') {
+      MICROS.forEach(function (k) { if (isNum(e.amounts[k])) out[k] = e.amounts[k] * e.doses; });
+      out.kcal = 0;
+      return out;
+    }
     TRACKED.forEach(function (k) {
       if (e.fixed) {
         if (e.fixed[k] != null) out[k] = e.fixed[k];
@@ -242,6 +262,7 @@
 
   /** Low and high energy for an entry; equal unless it is an unmeasured photo item. */
   function kcalRange(e) {
+    if (e.source === 'supplement') return [0, 0];
     if (e.fixed) return [e.fixed.kcal || 0, e.fixed.kcal || 0];
     var lo = e.gramsLow || e.grams, hi = e.gramsHigh || e.grams;
     return [e.per100.kcal * lo / 100, e.per100.kcal * hi / 100];
@@ -254,10 +275,26 @@
 
   function day(date) { return (data.days[date] || []).slice(); }
 
+  /**
+   * What supplements alone gave, for the upper limits that apply only to
+   * supplements and fortified foods. Folate's counts folic acid only.
+   */
+  function suppOf(e) {
+    var out = {};
+    if (e.source !== 'supplement') return out;
+    MICROS.forEach(function (k) {
+      if (k !== 'folate' && isNum(e.amounts[k])) out[k] = e.amounts[k] * e.doses;
+    });
+    if (isNum(e.amounts.folicAcid)) out.folate = e.amounts.folicAcid * e.doses;
+    return out;
+  }
+
   function totals(date) {
-    var t = { kcalLow: 0, kcalHigh: 0, count: 0, estKcal: 0, partialKcal: 0, partialCount: 0 };
+    var t = { kcalLow: 0, kcalHigh: 0, count: 0, estKcal: 0, partialKcal: 0, partialCount: 0, supp: {} };
     TRACKED.forEach(function (k) { t[k] = 0; });
     day(date).forEach(function (e) {
+      var sp = suppOf(e);
+      Object.keys(sp).forEach(function (k) { t.supp[k] = (t.supp[k] || 0) + sp[k]; });
       var n = nutrientsOf(e);
       TRACKED.forEach(function (k) { if (n[k] != null) t[k] += n[k]; });
       var r = kcalRange(e);
@@ -298,6 +335,21 @@
       at: Date.now()
     };
     e.updatedAt = e.at;
+    if (e.source === 'supplement') {
+      e.name = String(item.name || '').slice(0, 120) || 'Supplement';
+      e.amounts = {};
+      MICROS.concat(['folicAcid']).forEach(function (k) {
+        var v = Number(item.amounts && item.amounts[k]);
+        if (v > 0) e.amounts[k] = Math.min(v, 1e5);
+      });
+      var d = Number(item.doses) || 1;
+      e.doses = Math.min(MAX_DOSES, Math.max(0.25, Math.round(d * 4) / 4));
+      if (item.dose) e.dose = String(item.dose).slice(0, 40);
+      if (item.supplementId) e.supplementId = String(item.supplementId).slice(0, 40);
+      (data.days[date] = data.days[date] || []).push(e);
+      persist([date]);
+      return e;
+    }
     if (item.fixed) {
       e.name = String(item.name || '').slice(0, 120) || 'Food';
       e.fixed = {};
@@ -335,6 +387,12 @@
       if (item.barcode) e.barcode = String(item.barcode).replace(/\D/g, '').slice(0, 14);
       if (item.brand) e.brand = String(item.brand).slice(0, 60);
       if (item.photoId) e.photoId = String(item.photoId).slice(0, 40);
+      if (item.recipeId) e.recipeId = String(item.recipeId).slice(0, 40);
+      // A recipe's ingredients, for counting the different plants eaten.
+      if (Array.isArray(item.slugs)) {
+        e.slugs = item.slugs.filter(function (x) { return typeof x === 'string'; }).slice(0, 40)
+          .map(function (x) { return x.slice(0, 60); });
+      }
       var plate = Number(item.plateAssumed);
       if (plate >= 8 && plate <= 45) e.plateAssumed = plate;
     }
@@ -355,7 +413,7 @@
   function update(date, id, patch) {
     var e = find(date, id);
     if (!e) return;
-    if (patch.grams != null && !e.fixed) {
+    if (patch.grams != null && !e.fixed && e.source !== 'supplement') {
       var g = clampGrams(patch.grams);
       if (g) {
         e.grams = g;
@@ -364,6 +422,10 @@
         if (patch.measure) e.measure = String(patch.measure).slice(0, 80);
         else delete e.measure;
       }
+    }
+    if (patch.doses != null && e.source === 'supplement') {
+      var d = Number(patch.doses);
+      if (d > 0) e.doses = Math.min(MAX_DOSES, Math.max(0.25, Math.round(d * 4) / 4));
     }
     if (patch.meal && MEALS.indexOf(patch.meal) >= 0) e.meal = patch.meal;
     e.updatedAt = bump(e);
@@ -431,7 +493,7 @@
    */
   function copyMeal(fromDate, meal, toDate, toMeal) {
     if (!isDate(toDate)) return 0;
-    var src = (data.days[fromDate] || []).filter(function (e) { return e.meal === meal; });
+    var src = (data.days[fromDate] || []).filter(function (e) { return e.meal === meal && e.source !== 'supplement'; });
     if (!src.length) return 0;
     var now = Date.now();
     var list = data.days[toDate] = data.days[toDate] || [];
@@ -698,10 +760,10 @@
   function importedFrom() { return data.imported || null; }
 
   window.Tracker = {
-    MEALS: MEALS, MACROS: MACROS, TRACKED: TRACKED, MAX_GRAMS: MAX_GRAMS,
+    MEALS: MEALS, MACROS: MACROS, TRACKED: TRACKED, MICROS: MICROS, MAX_GRAMS: MAX_GRAMS,
     today: today, shift: shift, dateKey: dateKey, guessMeal: guessMeal,
     day: day, totals: totals, history: history, find: find,
-    nutrientsOf: nutrientsOf, kcalRange: kcalRange, isEstimate: isEstimate, isComplete: isComplete,
+    nutrientsOf: nutrientsOf, suppOf: suppOf, kcalRange: kcalRange, isEstimate: isEstimate, isComplete: isComplete,
     add: add, update: update, rename: rename, move: move, copyMeal: copyMeal, rescalePhoto: rescalePhoto, plateFactor: plateFactor, remove: remove,
     exportJson: exportJson, importJson: importJson, clearAll: clearAll,
     mergeDay: mergeDay, mergeDays: mergeDays, dayDoc: dayDoc, sameDay: sameDay, allDates: allDates,

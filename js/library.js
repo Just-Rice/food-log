@@ -1,11 +1,12 @@
-// Saved meals and home recipes.
+// Saved meals, home recipes and supplements.
 //
 // A saved meal is a set of log entries kept under a name -- "my usual
 // breakfast" -- and logged again in one tap. A recipe is a list of USDA
 // ingredients with weights, plus how much the cooked dish weighs or how many
 // servings it makes; its nutrition per 100 g and per serving is worked out
 // from the ingredients, so a logged recipe carries the full vitamin and
-// mineral profile rather than a guess.
+// mineral profile rather than a guess. A supplement is what its label says
+// one dose contains, in the units the reference intakes use.
 //
 // Stored on this device (localStorage 'foodlog.library.v1'). With sync on,
 // it is merged across devices the way the log is: every item carries the
@@ -19,7 +20,7 @@
   var TOMBSTONE_DAYS = 90;
   var MAX_ITEMS = 40;          // ingredients in a recipe, entries in a meal
   var listeners = [];
-  var data = load();
+  var data;                    // loaded below, once the cleaners are defined
 
   function isNum(v) { return typeof v === 'number' && isFinite(v); }
   function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
@@ -73,8 +74,31 @@
     return out;
   }
 
+  // Label nutrients a supplement may list (see Tracker.MICROS), plus the
+  // folic-acid part of folate, which alone has an upper limit.
+  var SUPP_KEYS = ['vita', 'vitc', 'vitd', 'vite', 'vitk', 'thiamin', 'riboflavin', 'niacin',
+                   'pantothenic', 'b6', 'folate', 'folicAcid', 'b12', 'choline',
+                   'calcium', 'iron', 'magnesium', 'phosphorus', 'potassium', 'sodium', 'zinc',
+                   'copper', 'manganese', 'selenium'];
+
+  function cleanSupplement(x) {
+    if (!x || typeof x.id !== 'string' || typeof x.name !== 'string') return null;
+    var amounts = {};
+    if (isMap(x.amounts)) {
+      SUPP_KEYS.forEach(function (k) {
+        if (isNum(x.amounts[k]) && x.amounts[k] > 0 && x.amounts[k] < 1e5) amounts[k] = x.amounts[k];
+      });
+    }
+    if (!Object.keys(amounts).length) return null;
+    return { id: x.id.slice(0, 40), name: x.name.slice(0, 80) || 'Supplement',
+             dose: typeof x.dose === 'string' && x.dose.trim() ? x.dose.slice(0, 40) : '1 tablet',
+             amounts: amounts, daily: !!x.daily, updatedAt: isNum(x.updatedAt) ? x.updatedAt : 0 };
+  }
+
+  var KINDS = { meals: cleanMeal, recipes: cleanRecipe, supplements: cleanSupplement };
+
   function sanitise(d) {
-    var out = { meals: {}, recipes: {}, deleted: {} };
+    var out = { meals: {}, recipes: {}, supplements: {}, deleted: {} };
     if (!isMap(d)) return out;
     var cutoff = Date.now() - TOMBSTONE_DAYS * 864e5;
     if (isMap(d.deleted)) {
@@ -82,10 +106,10 @@
         if (isNum(d.deleted[id]) && d.deleted[id] >= cutoff && !/^__.*__$/.test(id)) out.deleted[id] = d.deleted[id];
       });
     }
-    ['meals', 'recipes'].forEach(function (kind) {
+    Object.keys(KINDS).forEach(function (kind) {
       if (!isMap(d[kind])) return;
       Object.keys(d[kind]).forEach(function (id) {
-        var x = kind === 'meals' ? cleanMeal(d[kind][id]) : cleanRecipe(d[kind][id]);
+        var x = KINDS[kind](d[kind][id]);
         if (x && x.id === id && !(out.deleted[id] >= x.updatedAt)) out[kind][id] = x;
       });
     });
@@ -162,13 +186,29 @@
              servingGrams: weight / servings, per100: per100, perServing: perServing };
   }
 
+  // ---- supplements -----------------------------------------------------------
+
+  /** Save a supplement: {id?, name, dose, amounts, daily}. Returns it, or null. */
+  function saveSupplement(x) {
+    var prev = x.id && data.supplements[x.id];
+    var s = cleanSupplement({ id: x.id || newId(), name: String(x.name || '').trim() || 'Supplement',
+                              dose: String(x.dose || '').trim(), amounts: clone(x.amounts || {}),
+                              daily: !!x.daily, updatedAt: 0 });
+    if (!s) return null;
+    s.updatedAt = stamp(prev);
+    data.supplements[s.id] = s;
+    persist();
+    return s;
+  }
+
   // ---- shared ------------------------------------------------------------
 
   function remove(id) {
-    var had = data.meals[id] || data.recipes[id];
+    var had = data.meals[id] || data.recipes[id] || data.supplements[id];
     if (!had) return;
     delete data.meals[id];
     delete data.recipes[id];
+    delete data.supplements[id];
     data.deleted[id] = Math.max(Date.now(), had.updatedAt || 0);
     persist();
   }
@@ -195,7 +235,7 @@
     Object.keys(r.deleted).forEach(function (id) {
       if (!(data.deleted[id] >= r.deleted[id])) data.deleted[id] = r.deleted[id];
     });
-    ['meals', 'recipes'].forEach(function (kind) {
+    Object.keys(KINDS).forEach(function (kind) {
       Object.keys(r[kind]).forEach(function (id) {
         var mine = data[kind][id], theirs = r[kind][id];
         if (!mine || theirs.updatedAt > mine.updatedAt ||
@@ -213,11 +253,15 @@
   /** Whether another copy says exactly what this one does. */
   function same(remote) { return canon(sanitise(remote)) === canon(data); }
 
+  data = load();
+
   window.Library = {
     meals: function () { return sorted(data.meals); },
     recipes: function () { return sorted(data.recipes); },
-    get: function (id) { return data.meals[id] || data.recipes[id] || null; },
-    saveMeal: saveMeal, saveRecipe: saveRecipe, remove: remove, nutrition: nutrition,
+    supplements: function () { return sorted(data.supplements); },
+    get: function (id) { return data.meals[id] || data.recipes[id] || data.supplements[id] || null; },
+    saveMeal: saveMeal, saveRecipe: saveRecipe, saveSupplement: saveSupplement, SUPP_KEYS: SUPP_KEYS,
+    remove: remove, nutrition: nutrition,
     doc: doc, merge: merge, same: same,
     onChange: function (fn) { listeners.push(fn); }
   };

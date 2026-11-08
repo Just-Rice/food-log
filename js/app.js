@@ -36,6 +36,25 @@
     no_recipes: 'No recipes yet.',
     log_it: 'Log', log_serving: 'Log 1 serving', edit: 'Edit', del: 'Delete', save: 'Save',
     delete_confirm: 'Delete “{name}”?',
+    supps_title: 'Supplements',
+    supps_lede: 'Tablets, capsules and drops, from the label. They count toward the day’s vitamins and minerals, and the upper limits that apply only to supplements are checked against them.',
+    supps_safety: 'Food Log cannot tell you whether to take a supplement. Ask a doctor or pharmacist, especially if you take medicines, are pregnant, or are buying for a child: iron tablets are a common cause of poisoning in young children.',
+    daily: 'every day', unit: 'unit', saved_notice: 'Saved “{name}”.',
+    no_supps: 'No supplements saved.', new_supp: 'Add a supplement', edit_supp: 'Edit supplement',
+    supp_name: 'Name', supp_dose: 'One dose is', supp_dose_ph: '1 tablet',
+    supp_daily: 'I take this every day: offer it on Today', supp_amounts: 'Per dose, from the label',
+    supp_more: 'More nutrients', supp_needs: 'Enter at least one amount from the label.',
+    supp_folate_hint: 'Labels give folate in µg DFE, often with the folic acid in brackets: enter both. If a label lists only folic acid, enter it under folic acid and leave folate empty.',
+    supp_tag: 'supplement', taken_today: 'Taken today?', taken_that_day: 'Taken that day?', doses: 'Doses',
+    supp_a_note: 'IU on an older label: retinol 1 IU = 0.3 µg.',
+    over_ul_supp: 'Supplements gave {v} {unit}, above the {ul} {unit} upper limit for supplements.',
+    over_ul_supp_vita: 'Supplements gave {v} µg, above the {ul} µg limit for preformed vitamin A (retinol). If part of it is beta-carotene, the real figure is lower.',
+    plants_title: 'Plants this week',
+    plants_n: '{n} different plant foods in the last 7 days.', plants_one: '1 plant food in the last 7 days.',
+    plants_none: 'No plant foods counted in the last 7 days yet.',
+    plants_unknown: 'Typed-in, scanned and unmatched photo entries are not counted, since the food behind them is not known.',
+    plants_note: 'Vegetables, fruit, pulses, grains, nuts, seeds, herbs, spices and mushrooms each count once, however they were cooked. A wider range of plants is linked to a more varied gut microbiome (American Gut Project, McDonald et al., 2018).',
+    report_plants: 'Different plant foods',
     edit_entry: 'Edit', rename: 'Rename', move_to: 'Move to', move: 'Move', name_label: 'Name',
     copy_meal: 'Copy this meal to…', copy: 'Copy', same_as_yesterday: 'Same as yesterday’s {meal}',
     copied_n: 'Copied {n} to {day}.', moved_to: 'Moved to {day}.', day_label: 'Day',
@@ -134,7 +153,7 @@
     from_label: 'packet', label_sub: 'From the packet label, via Open Food Facts',
     over_ul: 'Above the tolerable upper intake level of {ul} {unit}.',
     over_sodium: 'Above the {ul} mg level the 2019 DRIs set for reducing chronic-disease risk.',
-    ul_food_note: 'Upper limits that apply only to supplements and fortified foods are not flagged, since food alone is not known to cause harm at those intakes.',
+    ul_food_note: 'Upper limits that apply only to supplements and fortified foods are checked against your logged supplements alone, since food is not known to cause harm at those intakes.',
     gaps_title: 'This week’s vitamins and minerals',
     gaps_few: 'Log at least three days this week to see which vitamins and minerals run low.',
     gaps_none: 'Every vitamin and mineral averaged at least 70% of your reference intake on the days logged.',
@@ -312,7 +331,7 @@
     calcium: ['Calcium', 'mg'], iron: ['Iron', 'mg'], magnesium: ['Magnesium', 'mg'],
     phosphorus: ['Phosphorus', 'mg'], potassium: ['Potassium', 'mg'], sodium: ['Sodium', 'mg'],
     zinc: ['Zinc', 'mg'], copper: ['Copper', 'mg'], manganese: ['Manganese', 'mg'],
-    selenium: ['Selenium', 'ug']
+    selenium: ['Selenium', 'ug'], folicAcid: ['Folic acid', 'ug']
   };
   var VITAMINS = ['vita', 'vitc', 'vitd', 'vite', 'vitk', 'thiamin', 'riboflavin', 'niacin',
                   'pantothenic', 'b6', 'folate', 'b12', 'choline'];
@@ -552,13 +571,14 @@
   function logRecipe(r, date, meal, servings) {
     var n = Library.nutrition(r);
     Tracker.add(date, { name: r.name, per100: n.per100, grams: Math.round(n.servingGrams * (servings || 1)),
-                        meal: meal, source: 'recipe' });
+                        meal: meal, source: 'recipe', recipeId: r.id,
+                        slugs: r.ingredients.map(function (it) { return it.slug; }).filter(Boolean) });
   }
 
   function libraryChips() {
     if (!window.Library || logState.pick || logState.scan) return '';
-    var meals = Library.meals(), recipes = Library.recipes();
-    if (!meals.length && !recipes.length) return '';
+    var meals = Library.meals(), recipes = Library.recipes(), supps = Library.supplements();
+    if (!meals.length && !recipes.length && !supps.length) return '';
     return '<div class="recent"><span class="label">' + esc(t('my_meals')) + '</span><div class="chips">' +
       meals.slice(0, 8).map(function (m) {
         return '<button class="chip" type="button" data-lib-meal="' + esc(m.id) + '">' + esc(m.name) + '</button>';
@@ -566,6 +586,10 @@
       recipes.slice(0, 8).map(function (r) {
         return '<button class="chip" type="button" data-lib-recipe="' + esc(r.id) + '">' + esc(r.name) +
           ' <span class="dim">' + esc(t('recipe_tag')) + '</span></button>';
+      }).join('') +
+      supps.slice(0, 8).map(function (x) {
+        return '<button class="chip" type="button" data-take-supp="' + esc(x.id) + '">' + esc(x.name) +
+          ' <span class="dim">' + esc(t('supp_tag')) + '</span></button>';
       }).join('') + '</div></div>';
   }
 
@@ -592,6 +616,7 @@
 
   function viewMeals() {
     if (mealsState.editing) return viewRecipeEditor();
+    if (mealsState.editingSupp) return viewSuppEditor();
     var meals = Library.meals(), recipes = Library.recipes();
     main.innerHTML =
       '<div class="page-head"><h1>' + esc(t('meals_title')) + '</h1><p>' + esc(t('meals_lede')) + '</p></div>' +
@@ -622,7 +647,21 @@
               '<button class="btn ghost small" type="button" data-del-lib="' + esc(r.id) + '">' + esc(t('del')) + '</button></div></div>';
           }).join('')
         : '<p class="empty">' + esc(t('no_recipes')) + '</p>') +
-      '<div class="btn-row" style="margin-top:12px"><button class="btn" type="button" id="newRecipe">' + esc(t('new_recipe')) + '</button></div>';
+      '<div class="btn-row" style="margin-top:12px"><button class="btn" type="button" id="newRecipe">' + esc(t('new_recipe')) + '</button></div>' +
+      '<h2 class="section">' + esc(t('supps_title')) + '</h2>' +
+      '<p class="hint">' + esc(t('supps_lede')) + '</p>' +
+      (Library.supplements().length
+        ? Library.supplements().map(function (x) {
+            return '<div class="card pad lib-card"><div class="lib-head"><strong>' + esc(x.name) + '</strong>' +
+              '<span class="dim">' + esc(x.dose) + (x.daily ? ' · ' + esc(t('daily')) : '') + '</span></div>' +
+              '<p class="hint">' + esc(suppSummary(x.amounts, 1)) + '</p>' +
+              '<div class="btn-row"><button class="btn small" type="button" data-take-supp="' + esc(x.id) + '">' + esc(t('log_it')) + '</button>' +
+              '<button class="btn ghost small" type="button" data-edit-supp="' + esc(x.id) + '">' + esc(t('edit')) + '</button>' +
+              '<button class="btn ghost small" type="button" data-del-lib="' + esc(x.id) + '">' + esc(t('del')) + '</button></div></div>';
+          }).join('')
+        : '<p class="empty">' + esc(t('no_supps')) + '</p>') +
+      '<div class="btn-row" style="margin-top:12px"><button class="btn" type="button" id="newSupp">' + esc(t('new_supp')) + '</button></div>' +
+      '<p class="hint warn-text" style="margin-top:12px">' + esc(t('supps_safety')) + '</p>';
     logState.notice = '';
 
     main.querySelectorAll('[data-log-meal]').forEach(function (b) {
@@ -657,6 +696,145 @@
       mealsState.editing = { name: '', ingredients: [], cookedGrams: null, servings: 4 };
       render();
     });
+    document.getElementById('newSupp').addEventListener('click', function () {
+      mealsState.editingSupp = { name: '', dose: '', amounts: {}, daily: true };
+      render();
+    });
+    main.querySelectorAll('[data-edit-supp]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        mealsState.editingSupp = JSON.parse(JSON.stringify(Library.get(b.dataset.editSupp)));
+        render();
+      });
+    });
+    bindTakeSupp(Tracker.today());
+  }
+
+  // ---- supplements -----------------------------------------------------------
+
+  // The editor's fields: the ones most labels list first, then the rest.
+  var SUPP_MAIN = ['vitd', 'b12', 'iron', 'folate', 'folicAcid', 'calcium', 'vitc', 'vita', 'zinc', 'magnesium'];
+  var SUPP_MORE = ['vite', 'vitk', 'thiamin', 'riboflavin', 'niacin', 'pantothenic', 'b6', 'choline',
+                   'phosphorus', 'potassium', 'sodium', 'copper', 'manganese', 'selenium'];
+  // Label units that need converting to the reference intakes' units.
+  var SUPP_UNITS = {
+    vita: [['ug', 'µg RAE', 1], ['iu', 'IU (retinol)', 0.3]],
+    vitd: [['ug', 'µg', 1], ['iu', 'IU', 0.025]],
+    vite: [['mg', 'mg', 1], ['iun', 'IU, natural (d-alpha)', 0.67], ['ius', 'IU, synthetic (dl-alpha)', 0.45]]
+  };
+
+  function isSupp(e) { return e.source === 'supplement'; }
+
+  /** "25 µg vitamin D · 14 mg iron" for a dose (times `doses`). */
+  function suppSummary(amounts, doses) {
+    return Object.keys(amounts || {}).filter(function (k) { return NUTRIENTS[k]; }).map(function (k) {
+      return fmt(amounts[k] * (doses || 1)) + ' ' + nutrientUnit(k) + ' ' +
+        (k === 'folate' ? 'folate (DFE)' : lowerFirst(nutrientLabel(k)));
+    }).join(' · ');
+  }
+
+  function viewSuppEditor() {
+    var x = mealsState.editingSupp, a = x.amounts || {};
+    var field = function (k) {
+      if (!NUTRIENTS[k]) return '';
+      var units = SUPP_UNITS[k];
+      return '<div class="field supp-field"><label for="su_' + k + '">' + esc(nutrientLabel(k)) +
+        (k === 'folate' ? ' (DFE)' : '') + '</label><div class="supp-in">' +
+        '<input id="su_' + k + '" type="number" min="0" step="any" inputmode="decimal" value="' + esc(a[k] != null ? a[k] : '') + '">' +
+        (units
+          ? '<select id="su_' + k + '_u" aria-label="' + esc(nutrientLabel(k) + ' ' + t('unit')) + '">' + units.map(function (u) {
+              return '<option value="' + u[0] + '">' + esc(u[1]) + '</option>';
+            }).join('') + '</select>'
+          : '<span class="dim">' + esc(nutrientUnit(k)) + '</span>') + '</div></div>';
+    };
+    main.innerHTML =
+      '<div class="page-head"><h1>' + esc(x.id ? t('edit_supp') : t('new_supp')) + '</h1></div>' +
+      '<div class="card pad supp-editor">' +
+      '<div class="field-row"><div class="field"><label for="suName">' + esc(t('supp_name')) + '</label>' +
+      '<input id="suName" type="text" maxlength="80" value="' + esc(x.name || '') + '"></div>' +
+      '<div class="field"><label for="suDose">' + esc(t('supp_dose')) + '</label>' +
+      '<input id="suDose" type="text" maxlength="40" placeholder="' + esc(t('supp_dose_ph')) + '" value="' + esc(x.dose || '') + '"></div></div>' +
+      '<label class="toggle-row" style="margin:6px 0 14px"><input type="checkbox" id="suDaily"' + (x.daily ? ' checked' : '') + '> ' +
+      esc(t('supp_daily')) + '</label>' +
+      '<h2 class="section" style="margin-top:4px">' + esc(t('supp_amounts')) + '</h2>' +
+      '<div class="supp-grid">' + SUPP_MAIN.map(field).join('') + '</div>' +
+      '<p class="hint">' + esc(t('supp_folate_hint')) + ' ' + esc(t('supp_a_note')) + '</p>' +
+      '<details class="manual"' + (SUPP_MORE.some(function (k) { return a[k] != null; }) ? ' open' : '') + '><summary>' +
+      esc(t('supp_more')) + '</summary><div class="supp-grid">' + SUPP_MORE.map(field).join('') + '</div></details>' +
+      '<p class="hint warn-text" id="suMsg" role="status"></p>' +
+      '<div class="btn-row"><button class="btn" type="button" id="suSave">' + esc(t('save')) + '</button>' +
+      '<button class="btn ghost" type="button" id="suCancel">' + esc(t('cancel')) + '</button></div></div>' +
+      '<p class="hint warn-text" style="margin-top:12px">' + esc(t('supps_safety')) + '</p>';
+
+    document.getElementById('suCancel').addEventListener('click', function () { mealsState.editingSupp = null; render(); });
+    document.getElementById('suSave').addEventListener('click', function () {
+      var amounts = {};
+      SUPP_MAIN.concat(SUPP_MORE).forEach(function (k) {
+        var el = document.getElementById('su_' + k);
+        if (!el || el.value === '') return;
+        var v = Number(el.value);
+        if (!(v > 0)) return;
+        var u = document.getElementById('su_' + k + '_u');
+        if (u) SUPP_UNITS[k].forEach(function (x) { if (x[0] === u.value) v = v * x[2]; });
+        amounts[k] = Math.round(v * 1000) / 1000;
+      });
+      // An older label with folic acid only: 1 µg folic acid is 1.7 µg DFE.
+      if (amounts.folicAcid && !amounts.folate) amounts.folate = Math.round(amounts.folicAcid * 1.7 * 10) / 10;
+      if (!Object.keys(amounts).length) { document.getElementById('suMsg').textContent = t('supp_needs'); return; }
+      var saved = Library.saveSupplement({
+        id: x.id, name: document.getElementById('suName').value, dose: document.getElementById('suDose').value,
+        daily: document.getElementById('suDaily').checked, amounts: amounts
+      });
+      if (!saved) { document.getElementById('suMsg').textContent = t('supp_needs'); return; }
+      mealsState.editingSupp = null;
+      logState.notice = t('saved_notice', { name: saved.name });
+      render();
+    });
+  }
+
+  /** Log one dose of a saved supplement. */
+  function takeSupp(x, date) {
+    return Tracker.add(date, { source: 'supplement', name: x.name, amounts: x.amounts, doses: 1, dose: x.dose,
+                               supplementId: x.id, meal: Tracker.guessMeal() });
+  }
+
+  function bindTakeSupp(date) {
+    main.querySelectorAll('[data-take-supp]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var x = Library.get(b.dataset.takeSupp);
+        if (!x) return;
+        takeSupp(x, date || logState.date || Tracker.today());
+        logState.notice = t('logged_notice', { name: x.name });
+        render();
+      });
+    });
+  }
+
+  /** Today's supplements, and one-tap chips for the daily ones not yet logged. */
+  function suppBlock(entries, date) {
+    var list = entries.filter(isSupp);
+    var daily = window.Library ? Library.supplements().filter(function (x) {
+      return x.daily && !list.some(function (e) { return e.supplementId === x.id; });
+    }) : [];
+    if (!list.length && !daily.length) return '';
+    return '<div class="card pad log-meal supp-block"><div class="log-meal-head"><h3>' + esc(t('supps_title')) + '</h3></div>' +
+      (daily.length
+        ? '<div class="supp-daily"><span class="label">' + esc(t(date === Tracker.today() ? 'taken_today' : 'taken_that_day')) + '</span>' +
+          '<div class="chips">' + daily.map(function (x) {
+            return '<button class="chip" type="button" data-take-supp="' + esc(x.id) + '">+ ' + esc(x.name) + '</button>';
+          }).join('') + '</div></div>'
+        : '') +
+      (list.length ? '<ul class="log-list">' + list.map(suppRow).join('') + '</ul>' : '') + '</div>';
+  }
+
+  function suppRow(e) {
+    return '<li><span class="l-name">' + esc(e.name) + ' <span class="tag">' + esc(t('supp_tag')) + '</span>' +
+      '<span class="l-sub">' + esc(suppSummary(e.amounts, e.doses)) + '</span></span>' +
+      '<span class="l-amt"><input type="number" min="0.25" max="20" step="0.25" class="amt" data-doses="' + esc(e.id) +
+      '" value="' + esc(e.doses) + '" aria-label="' + esc(t('doses') + ', ' + e.name) + '"> × ' + esc(e.dose || '1') + '</span>' +
+      '<button class="chip" type="button" data-edit-entry="' + esc(e.id) + '" aria-expanded="' + (logState.editing === e.id) +
+      '" aria-label="' + esc(t('edit_entry') + ' ' + e.name) + '">' + esc(t('edit_entry')) + '</button>' +
+      '<button class="chip" type="button" data-del="' + esc(e.id) + '" aria-label="' + esc(t('remove') + ' ' + e.name) + '">&times;</button>' +
+      (logState.editing === e.id ? entryTools(e) : '') + '</li>';
   }
 
   function viewRecipeEditor() {
@@ -970,9 +1148,10 @@
         day: date >= Tracker.shift(Tracker.today(), -1) ? dayLabel(date).toLowerCase() : dayLabel(date)
       })) + '</h2>' +
       sameAsYesterday(date, entries) +
-      (entries.length
+      (entries.some(function (e) { return !isSupp(e); })
         ? Tracker.MEALS.map(function (meal) { return mealBlock(meal, entries, date); }).join('')
         : '<p class="empty" style="padding:24px 0">' + esc(t('log_empty')) + '</p>') +
+      suppBlock(entries, date) +
 
       (entries.length ? nutrientPanel(totals, ref, prof, 1) : '') +
       supportNote();
@@ -1041,9 +1220,11 @@
         var pct = target ? v / target * 100 : null;
         var ul = uls[k];
         var warn = '';
-        if (ul && v > ul.value) {
-          if (k === 'sodium') warn = t('over_sodium', { ul: ul.value });
-          else if (!ul.supplementOnly) warn = t('over_ul', { ul: ul.value, unit: UNIT[ul.unit] });
+        if (ul && ul.supplementOnly) {
+          var sv = ((totals.supp && totals.supp[k]) || 0) / divisor;
+          if (sv > ul.value) warn = t(k === 'vita' ? 'over_ul_supp_vita' : 'over_ul_supp', { v: fmt(sv), ul: ul.value, unit: UNIT[ul.unit] });
+        } else if (ul && v > ul.value) {
+          warn = k === 'sodium' ? t('over_sodium', { ul: ul.value }) : t('over_ul', { ul: ul.value, unit: UNIT[ul.unit] });
         }
         return '<tr' + (warn ? ' class="over"' : '') + '><th scope="row">' + esc(nutrientLabel(k)) + '</th>' +
           '<td class="num">' + fmt(v) + ' ' + esc(nutrientUnit(k)) + '</td>' +
@@ -1070,7 +1251,7 @@
   }
 
   function mealBlock(meal, entries, date) {
-    var list = entries.filter(function (e) { return e.meal === meal; });
+    var list = entries.filter(function (e) { return e.meal === meal && !isSupp(e); });
     if (!list.length) return '';
     var lo = 0, hi = 0;
     list.forEach(function (e) { var r = Tracker.kcalRange(e); lo += r[0]; hi += r[1]; });
@@ -1103,9 +1284,9 @@
 
   /** "Same as yesterday's breakfast" for each meal yesterday had and this day does not. */
   function sameAsYesterday(date, entries) {
-    var prev = Tracker.day(Tracker.shift(date, -1));
+    var prev = Tracker.day(Tracker.shift(date, -1)).filter(function (e) { return !isSupp(e); });
     var meals = Tracker.MEALS.filter(function (m) {
-      return prev.some(function (e) { return e.meal === m; }) && !entries.some(function (e) { return e.meal === m; });
+      return prev.some(function (e) { return e.meal === m; }) && !entries.some(function (e) { return e.meal === m && !isSupp(e); });
     });
     if (!meals.length) return '';
     return '<div class="chips same-yesterday">' + meals.map(function (m) {
@@ -1417,6 +1598,14 @@
         render();
       });
     });
+    main.querySelectorAll('input[data-doses]').forEach(function (inp) {
+      inp.addEventListener('change', function () {
+        var d = Number(inp.value);
+        if (d > 0) Tracker.update(logState.date, inp.dataset.doses, { doses: d });
+        render();
+      });
+    });
+    if (window.Library) bindTakeSupp(logState.date);
     main.querySelectorAll('[data-edit-entry]').forEach(function (b) {
       b.addEventListener('click', function () {
         logState.editing = logState.editing === b.dataset.editEntry ? null : b.dataset.editEntry;
@@ -2326,10 +2515,11 @@
     var days = Tracker.history(end, n);
     var logged = days.filter(function (d) { return d.count; });
     var target = energyTarget();
-    var sum = { partialCount: 0, partialKcal: 0 };
+    var sum = { partialCount: 0, partialKcal: 0, supp: {} };
     Tracker.TRACKED.forEach(function (k) { sum[k] = 0; });
     logged.forEach(function (d) {
       Tracker.TRACKED.forEach(function (k) { sum[k] += d[k] || 0; });
+      Object.keys(d.supp || {}).forEach(function (k) { sum.supp[k] = (sum.supp[k] || 0) + d.supp[k]; });
       sum.partialCount += d.partialCount;
       sum.partialKcal += d.partialKcal;
     });
@@ -2342,7 +2532,7 @@
           (d === n) + '">' + esc(t('days_' + d)) + '</button>';
       }).join('') + '</div>' +
       '<div class="card pad">' + chart(days, end, target) + '</div>' +
-      (window.Gaps ? gapsCard() : '') +
+      (window.Gaps ? gapsCard() + plantsCard() : '') +
       '<p style="margin:14px 0"><a class="btn ghost" href="#/report">' + esc(t('report_link')) + ' &rarr;</a></p>' +
       (logged.length
         ? '<h2 class="section">' + esc(t('days_list')) + '</h2><div class="card pad"><ul class="log-list">' +
@@ -2362,6 +2552,24 @@
   }
 
   function amountText(v, key) { return fmt(v) + ' ' + nutrientUnit(key); }
+
+  /** The different plant foods in the log over `n` days ending today. */
+  function plantsIn(n) {
+    var entries = [];
+    Tracker.history(Tracker.today(), n).forEach(function (d) { entries = entries.concat(Tracker.day(d.date)); });
+    return Gaps.plants(entries, FOOD_BY_SLUG);
+  }
+
+  function plantsCard() {
+    var pv = plantsIn(7);
+    return '<h2 class="section">' + esc(t('plants_title')) + '</h2><div class="card pad plants-card">' +
+      '<p><strong>' + esc(pv.count ? t(pv.count === 1 ? 'plants_one' : 'plants_n', { n: pv.count }) : t('plants_none')) + '</strong></p>' +
+      (pv.count ? '<div class="chips plant-list">' + pv.kinds.map(function (k) {
+        return '<span class="chip static">' + esc(k.name) + '</span>';
+      }).join('') + '</div>' : '') +
+      (pv.unknown ? '<p class="hint">' + esc(t('plants_unknown')) + '</p>' : '') +
+      '<p class="hint">' + esc(t('plants_note')) + '</p></div>';
+  }
   // "Vitamin K" -> "vitamin K", "Iron" -> "iron", for use mid-sentence.
   function lowerFirst(s) { return s.charAt(0).toLowerCase() + s.slice(1); }
 
@@ -2416,10 +2624,11 @@
     var days = Tracker.history(end, n);
     var logged = days.filter(function (d) { return d.count; });
     var prof = Profile.get(), ref = referenceSet(), target = energyTarget();
-    var sum = { partialCount: 0, partialKcal: 0 };
+    var sum = { partialCount: 0, partialKcal: 0, supp: {} };
     Tracker.TRACKED.forEach(function (k) { sum[k] = 0; });
     logged.forEach(function (d) {
       Tracker.TRACKED.forEach(function (k) { sum[k] += d[k] || 0; });
+      Object.keys(d.supp || {}).forEach(function (k) { sum.supp[k] = (sum.supp[k] || 0) + d.supp[k]; });
       sum.partialCount += d.partialCount; sum.partialKcal += d.partialKcal;
     });
     var q = { measured: 0, photo: 0, partial: 0 }, total = 0;
@@ -2454,6 +2663,9 @@
       (prof ? '<p>' + esc(t('report_profile')) + ': ' + esc(prof.age + ' · ' + prof.sex + ' · ' + fmt(prof.heightCm) + ' cm · ' +
         fmt(prof.weightKg) + ' kg') + '</p>' : '') +
       '<p>' + esc(t('report_diet')) + ': ' + esc(dietSummary() || t('none')) + '</p>' +
+      (window.Gaps && logged.length ? '<p>' + esc(t('report_plants')) + ': ' + Gaps.plants(days.reduce(function (all, d) {
+        return all.concat(Tracker.day(d.date));
+      }, []), FOOD_BY_SLUG).count + '</p>' : '') +
       (logged.length && showKcal() ? '<p>' + esc(t('report_avg_energy', { n: Math.round(avg('kcal')) })) +
         (target ? ' ' + esc(t('report_need', { n: target })) : '') + '</p>' : '') + '</div>' +
 

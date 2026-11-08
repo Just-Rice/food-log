@@ -1039,3 +1039,17 @@ ul.gap-foods .chip { padding: 2px 10px; font-size: .8rem; }
   a { color: #000; text-decoration: none; }
   .wrap { max-width: none; padding: 0; }
 }
+
+/* Supplements */
+.supp-grid { display: grid; gap: 10px 14px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); margin-bottom: 10px; }
+.supp-field { margin: 0; }
+.supp-in { display: flex; gap: 6px; align-items: center; }
+.supp-in input { flex: 1 1 80px; min-width: 0; }
+.supp-in select { flex: 1 1 110px; width: auto; min-width: 0; }
+.supp-in .dim { flex: 0 0 auto; font-size: .85rem; }
+.supp-daily { margin-bottom: 8px; }
+.supp-daily .label { display: block; font-size: .78rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+
+/* Plants this week */
+.chip.static { cursor: default; }
+.plant-list { margin: 4px 0 10px; }

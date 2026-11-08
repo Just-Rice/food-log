@@ -21,10 +21,30 @@
   var NOT_A_FOOD = /\b(flour|oil|powder|powdered|seasoning|spice|extract|bran|meal|mix|defatted|isolate|whey|concentrate|dried \(?decorticated)\b/;
   // Foods that are harmful unless specially prepared are never suggested.
   var NEEDS_PREP = /pokeberry|\bpoke\b|ackee|akee|cassava|bitter almond|elderberr/;
+  // Fish the FDA and EPA list as "choices to avoid" for their mercury.
+  var NOT_SUGGESTED = /\bbrain\b/;
+  var HIGH_MERCURY = /\b(king mackerel|marlin|orange roughy|shark|swordfish|tilefish|bigeye)\b/;
+  // Not suggested as an everyday source: game, and processed meat (which the
+  // WHO classes as a cause of bowel cancer).
+  var NOT_EVERYDAY = { game: 1, 'processed meat': 1 };
+
+  /**
+   * How familiar a food is: the names people know it by beyond its own
+   * (Food is Medicine's aliases -- "doodh" for milk), up to three.
+   */
+  function familiarity(f) {
+    var name = f.name.toLowerCase();
+    return Math.min(3, (f.aka || []).filter(function (a) {
+      a = String(a).toLowerCase();
+      return a && name.indexOf(a) < 0;
+    }).length);
+  }
   // A realistic amount for foods whose USDA portion is a cup: nobody eats a
   // cup of sesame seeds or of diced cheese.
   function portionCap(f) {
     if (f.group === 'nut') return 30;
+    // Dips and spreads go on a plate by the spoonful.
+    if (/hummus|spread|\bdip\b|paste|\bbutter\b/i.test(f.name)) return 60;
     // Cheese, cream cheese and the like: energy-dense dairy, eaten in tens of grams.
     if (f.group === 'dairy' && (f.nutrients.kcal || 0) >= 150) return 40;
     // A dry grain's cup is two or three servings; a dry serving is about 60 g.
@@ -57,12 +77,23 @@
     out.low.sort(function (a, b) { return a.pct - b.pct; });
     VITAMINS.concat(MINERALS).concat(['sodium']).forEach(function (k) {
       var ul = uls && uls[k];
-      // Limits set only for supplements and fortified foods do not apply to food.
-      if (!ul || ul.supplementOnly) return;
-      var n = logged.filter(function (d) { return (d[k] || 0) > ul.value; }).length;
-      if (n >= OVER_DAYS) out.over.push({ key: k, days: n, ul: ul.value });
+      if (!ul) return;
+      // Limits set only for supplements and fortified foods are checked
+      // against what supplements gave (Tracker totals' `supp`), never food.
+      var n = logged.filter(function (d) {
+        var v = ul.supplementOnly ? (d.supp && d.supp[k]) || 0 : d[k] || 0;
+        return v > ul.value;
+      }).length;
+      if (n >= OVER_DAYS) out.over.push({ key: k, days: n, ul: ul.value, supplementOnly: !!ul.supplementOnly });
     });
     return out;
+  }
+
+  // "cup" -> "1 cup"; "4 oz" stays; USDA's "unit (yield from 1 lb
+  // ready-to-cook squab)" becomes "1 unit".
+  function portionLabel(l) {
+    l = String(l || '').replace(/\s*\((yield|from|about|approx)[^)]*\)/i, '').trim();
+    return /^[\d½¼¾.]/.test(l) ? l : '1 ' + l;
   }
 
   // The last word before any comma or bracket, singular: "Mushrooms, brown"
@@ -86,7 +117,8 @@
       if (excluded && excluded(f)) return null;
       if (f.group === 'herb' || f.group === 'fat') return null;
       var lname = f.name.toLowerCase();
-      if (NOT_A_FOOD.test(lname) || NEEDS_PREP.test(lname)) return null;
+      if (NOT_A_FOOD.test(lname) || NEEDS_PREP.test(lname) || HIGH_MERCURY.test(lname) || NOT_SUGGESTED.test(lname)) return null;
+      if ((f.tags || []).some(function (t) { return NOT_EVERYDAY[t]; })) return null;
       // Liver is a fine source of iron or B12, but its vitamin A is preformed
       // retinol, which has an upper limit; it is not offered for vitamin A.
       if (key === 'vita' && f.group === 'offal') return null;
@@ -105,8 +137,8 @@
       // Rank by what a portion gives, credited up to a full day's worth --
       // beyond that more is no better -- and lean towards everyday foods:
       // those people know by other names (Food is Medicine's aliases).
-      var score = Math.min(pct, 1) + ((f.aka || []).length ? 0.35 : 0);
-      return { food: f, grams: grams, label: grams === portion.grams ? '1 ' + portion.label : grams + ' g',
+      var score = Math.min(pct, 1) + 0.15 * familiarity(f);
+      return { food: f, grams: grams, label: grams === portion.grams ? portionLabel(portion.label) : grams + ' g',
                amount: amount, pct: pct, score: score };
     }).filter(Boolean).sort(function (a, b) { return b.score - a.score || b.amount - a.amount; }).filter(function (s) {
       // One of each kind: three cuts of the same fish are one suggestion.
@@ -117,5 +149,35 @@
     }).slice(0, limit || 5);
   }
 
-  window.Gaps = { analyse: analyse, suggest: suggest, kindOf: kindOf, LOW: LOW, MIN_DAYS: MIN_DAYS };
+  // Plants, for the variety count: fungi count too, as most such counts do;
+  // oils and honey do not.
+  var PLANT_GROUPS = { veg: 1, fruit: 1, legume: 1, grain: 1, nut: 1, herb: 1, mushroom: 1 };
+
+  /**
+   * The different plant foods in a set of log entries. `bySlug` maps a slug
+   * to its food. Recipe entries count their ingredients (`slugs`). Entries
+   * with no food behind them -- typed in, scanned, unmatched photo items --
+   * cannot be counted and are reported as `unknown`.
+   * Returns {count, kinds: [{kind, name}], unknown}.
+   */
+  function plants(entries, bySlug) {
+    var seen = {}, kinds = [], unknown = 0;
+    function add(f) {
+      if (!f || !PLANT_GROUPS[f.group]) return;
+      var k = kindOf(f);
+      if (seen[k]) return;
+      seen[k] = true;
+      kinds.push({ kind: k, name: f.name });
+    }
+    entries.forEach(function (e) {
+      if (e.source === 'supplement') return;
+      if (e.slug) add(bySlug[e.slug]);
+      else if (e.slugs && e.slugs.length) e.slugs.forEach(function (s) { add(bySlug[s]); });
+      else unknown++;
+    });
+    kinds.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    return { count: kinds.length, kinds: kinds, unknown: unknown };
+  }
+
+  window.Gaps = { analyse: analyse, suggest: suggest, kindOf: kindOf, plants: plants, LOW: LOW, MIN_DAYS: MIN_DAYS };
 })();

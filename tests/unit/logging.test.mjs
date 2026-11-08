@@ -139,5 +139,28 @@ const D1 = '2026-11-06', D2 = '2026-11-07';
   check(E.S.state().status === 'error' && /paused/.test(E.S.state().error) && cloud2.writes === w, 'a failed delete leaves sync paused and sends nothing');
 }
 
+// ---- supplement entries ----
+{
+  const cloud = makeCloud();
+  const A = device(cloud), B = device(cloud);
+  await A.S.signIn(); await B.S.signIn(); await tick();
+  const s = A.T.add(D1, { source: 'supplement', name: 'Iron 14 mg', amounts: { iron: 14, folicAcid: 200, folate: 340, bogus: 5 }, doses: 2, meal: 'breakfast' });
+  check(s && s.amounts.iron === 14 && !('bogus' in s.amounts) && s.doses === 2, 'supplement entry: known nutrients only, doses kept');
+  const n = A.T.nutrientsOf(s), sp = A.T.suppOf(s);
+  check(n.iron === 28 && n.folate === 680 && n.kcal === 0 && !('folicAcid' in n), 'nutrients: amounts × doses, folate in DFE, no energy');
+  check(sp.iron === 28 && sp.folate === 400, 'toward supplement limits: folate counts folic acid only');
+  check(A.T.isComplete(s) && !A.T.isEstimate(s) && A.T.kcalRange(s).join() === '0,0', 'complete, not an estimate, no energy range');
+  A.T.add(D1, { food: food('oats', 380), grams: 40, meal: 'breakfast' });
+  check(A.T.copyMeal(D1, 'breakfast', D2, 'breakfast') === 1, 'copying a meal leaves the supplement taken with it behind');
+  A.T.update(D1, s.id, { grams: 300 });
+  check(A.T.find(D1, s.id).grams == null, 'a weight edit cannot turn a supplement into food');
+  A.T.update(D1, s.id, { doses: 1 });
+  await A.S.flush(); await tick();
+  const sb = B.T.find(D1, s.id);
+  check(sb && sb.source === 'supplement' && sb.doses === 1 && B.T.totals(D1).supp.iron === 14, 'supplement entries sync and keep their supplement totals');
+  const row = A.C.entries(A.T).split('\r\n').find((l) => /Iron 14 mg/.test(l));
+  check(/,Supplement,/.test(row) && /,14,/.test(row), 'CSV: source "Supplement" and its iron');
+}
+
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);
