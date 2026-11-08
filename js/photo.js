@@ -62,10 +62,10 @@
     lines.push('');
     lines.push('For each distinct food give:');
     lines.push('- "name": a plain name as a nutrition database would list it, in the state ' +
-      'it is served (e.g. "white rice, cooked", "chickpeas, cooked", "naan", "fried egg", ' +
-      '"paneer").');
+      'it is served (e.g. "white rice, cooked", "baked beans", "fried egg", "spaghetti, ' +
+      'cooked", "naan").');
     lines.push('- "search": one to three plain words for the main ingredient, for searching ' +
-      'a food database (e.g. "rice", "chickpeas", "naan", "paneer").');
+      'a food database (e.g. "rice", "beans", "egg", "spaghetti", "naan").');
     lines.push('- "cooked": true if it has been cooked, false if raw.');
     lines.push('- "grams": your best estimate of the edible weight on the plate, in grams.');
     lines.push('- "grams_low" and "grams_high": a realistic range. A photo has no depth, so ' +
@@ -75,12 +75,13 @@
     lines.push('');
     lines.push('RULES:');
     lines.push('- Split a plate into its components where they are visibly separate (rice, ' +
-      'dal, a roti, a salad). A dish that cannot be separated (a curry, a sandwich, a ' +
-      'pizza slice) is one item.');
-    lines.push('- Give every item its most likely specific name ("dal", "chicken curry", ' +
-      '"mixed vegetable curry", "papad"), never a placeholder like "curry 1". If you ' +
-      'are unsure what it is, still name your best guess and set confidence to "low".');
-    lines.push('- Small bowls (katoris) on a thali hold about 100 to 150 g each.');
+      'beans, an egg, a sausage, a salad). A dish that cannot be separated (a curry, a ' +
+      'sandwich, a burger, a pizza slice) is one item. Never also list a part of an item ' +
+      'you have already counted whole, such as a burger\'s bun.');
+    lines.push('- Give every item its most likely specific name ("black pudding", "bolognese ' +
+      'sauce", "dal", "salmon nigiri"), never a placeholder like "curry 1" or "side dish". ' +
+      'If you are unsure what it is, still name your best guess and set confidence to "low".');
+    lines.push('- Small side bowls hold about 100 to 150 g each.');
     lines.push('- If the food was very likely cooked in oil, ghee or butter, add the fat as ' +
       'its own item with an estimated amount. Hidden cooking fat is the commonest reason ' +
       'a calorie estimate is too low.');
@@ -153,6 +154,10 @@
       if (!data) data = salvage(body);
       if (!data) throw new Error('The model did not reply in the expected format. Try again.');
     }
+    // Some models wrap the whole answer in a one-element list:
+    // [{"items": [...], "notes": "..."}]. Unwrap it rather than reading the
+    // wrapper as a single nameless food.
+    if (Array.isArray(data) && data.length === 1 && data[0] && Array.isArray(data[0].items)) data = data[0];
     var raw = Array.isArray(data) ? data : (data.items || []);
     var items = raw.slice(0, 12).map(function (it) {
       if (!it || typeof it !== 'object') return null;
