@@ -906,6 +906,7 @@ ul.photo-items li.off .p-main, ul.photo-items li.off .p-amt, ul.photo-items li.o
 /* ---- Measuring -------------------------------------------------------- */
 .btn.small { padding: 6px 12px; font-size: .86rem; }
 .tag.measured-tag { background: var(--accent-wash); color: var(--accent-ink); }
+.tag.usual-tag { background: var(--accent-wash); color: var(--accent-ink); font-style: italic; }
 details.measure { margin-top: 8px; font-size: .9rem; }
 details.measure > summary {
   cursor: pointer; display: inline-block; color: var(--accent-ink); font-weight: 500;

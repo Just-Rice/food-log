@@ -179,6 +179,23 @@
       pushLibrary: function (uid, doc) {
         return load().then(function (f) { return f.fs.setDoc(f.fs.doc(f.db, 'users', uid, 'library', 'main'), doc); });
       },
+      pullMemory: function (uid) {
+        return load().then(function (f) { return f.fs.getDoc(f.fs.doc(f.db, 'users', uid, 'library', 'memory')); })
+          .then(function (d) { return d.exists() ? d.data() : null; });
+      },
+      pushMemory: function (uid, doc) {
+        return load().then(function (f) { return f.fs.setDoc(f.fs.doc(f.db, 'users', uid, 'library', 'memory'), doc); });
+      },
+      listenMemory: function (uid, cb, onError) {
+        var stop = false, off = null;
+        load().then(function (f) {
+          if (stop) return;
+          off = f.fs.onSnapshot(f.fs.doc(f.db, 'users', uid, 'library', 'memory'), function (d) {
+            if (d.exists() && !d.metadata.hasPendingWrites) cb(d.data());
+          }, onError);
+        });
+        return function () { stop = true; if (off) off(); };
+      },
       listenLibrary: function (uid, cb, onError) {
         var stop = false, off = null;
         load().then(function (f) {
@@ -388,33 +405,54 @@
     if (window.Profile && window.Profile.onChange) window.Profile.onChange(changed);
   }
 
-  // ---- saved meals and recipes ------------------------------------------------
+  // ---- saved meals, recipes, supplements; and what Food Log has learnt --------
+  // Two documents of the same shape: a store with doc(), merge(), same(),
+  // isEmpty() and onChange(), and backend calls named pull/push/listen + Name.
 
-  /** Merge the account's library here, then send back whatever it lacks. */
-  function syncLibrary(remoteDoc) {
-    var b = getBackend(), user = state.user, L = window.Library;
-    if (!user || !L || !b.pushLibrary) return Promise.resolve();
-    if (remoteDoc) L.merge(remoteDoc);
-    if (remoteDoc && L.same(remoteDoc)) return Promise.resolve();
-    var empty = !L.meals().length && !L.recipes().length && !Object.keys(L.doc().deleted).length;
-    if (!remoteDoc && empty) return Promise.resolve();
-    return b.pushLibrary(user.uid, L.doc());
-  }
-
-  var libraryTimer = null;
-  function hookLibrary() {
-    if (!window.Library) return;
-    window.Library.onChange(function (info) {
-      if (!state.user || paused || (info && info.remote)) return;
-      clearTimeout(libraryTimer);
-      libraryTimer = setTimeout(function () {
-        if (!state.user || paused) return;
-        getBackend().pushLibrary(state.user.uid, window.Library.doc()).then(function () {
-          set({ lastSync: Date.now(), status: 'on', error: '' });
+  function docSync(name, getStore) {
+    var timer = null;
+    return {
+      /** Merge the account's copy here, then send back whatever it lacks. */
+      sync: function (remoteDoc) {
+        var b = getBackend(), user = state.user, S = getStore();
+        if (!user || !S || !b['push' + name]) return Promise.resolve();
+        if (remoteDoc) S.merge(remoteDoc);
+        if (remoteDoc && S.same(remoteDoc)) return Promise.resolve();
+        if (!remoteDoc && S.isEmpty()) return Promise.resolve();
+        return b['push' + name](user.uid, S.doc());
+      },
+      pull: function (uid) {
+        var b = getBackend(), self = this;
+        return b['pull' + name] ? b['pull' + name](uid).then(function (d) { return self.sync(d); }) : Promise.resolve();
+      },
+      hook: function () {
+        var S = getStore();
+        if (!S) return;
+        S.onChange(function (info) {
+          if (!state.user || paused || (info && info.remote)) return;
+          clearTimeout(timer);
+          timer = setTimeout(function () {
+            if (!state.user || paused || !getBackend()['push' + name]) return;
+            getBackend()['push' + name](state.user.uid, S.doc()).then(function () {
+              set({ lastSync: Date.now(), status: 'on', error: '' });
+            }, function (err) { set({ status: 'error', error: message(err) }); });
+          }, PUSH_DELAY);
+        });
+      },
+      listen: function (uid) {
+        var b = getBackend(), S = getStore();
+        if (!S || !b['listen' + name]) return null;
+        return b['listen' + name](uid, function (doc) {
+          S.merge(doc);
+          set({ lastSync: Date.now() });
         }, function (err) { set({ status: 'error', error: message(err) }); });
-      }, PUSH_DELAY);
-    });
+      },
+      stop: function () { clearTimeout(timer); }
+    };
   }
+
+  var library = docSync('Library', function () { return window.Library; });
+  var memory = docSync('Memory', function () { return window.Memory; });
 
   /**
    * First contact after signing in: merge every day the account holds into
@@ -424,11 +462,12 @@
   function connect(user) {
     paused = false;
     hookTracker();
-    if (!settingsHooked) { settingsHooked = true; hookSettings(); hookLibrary(); }
+    if (!settingsHooked) { settingsHooked = true; hookSettings(); library.hook(); memory.hook(); }
     set({ user: user, status: 'syncing', error: '' });
     var b = getBackend();
     var settingsDone = (b.pullSettings ? b.pullSettings(user.uid).then(syncSettings) : Promise.resolve())
-      .then(function () { return b.pullLibrary ? b.pullLibrary(user.uid).then(syncLibrary) : null; });
+      .then(function () { return library.pull(user.uid); })
+      .then(function () { return memory.pull(user.uid); });
     return settingsDone.then(function () { return b.pullAll(user.uid); }).then(function (remote) {
       Tracker.mergeDays(remote);
       var send = Tracker.allDates().filter(function (d) {
@@ -444,11 +483,8 @@
       var offSettings = b.listenSettings ? b.listenSettings(user.uid, function (doc) {
         syncSettings(doc).catch(function (err) { set({ status: 'error', error: message(err) }); });
       }, function (err) { set({ status: 'error', error: message(err) }); }) : null;
-      var offLibrary = b.listenLibrary ? b.listenLibrary(user.uid, function (doc) {
-        if (window.Library) window.Library.merge(doc);
-        set({ lastSync: Date.now() });
-      }, function (err) { set({ status: 'error', error: message(err) }); }) : null;
-      unlisten = function () { offDays(); if (offSettings) offSettings(); if (offLibrary) offLibrary(); };
+      var offLibrary = library.listen(user.uid), offMemory = memory.listen(user.uid);
+      unlisten = function () { offDays(); if (offSettings) offSettings(); if (offLibrary) offLibrary(); if (offMemory) offMemory(); };
       set({ status: 'on', lastSync: Date.now() });
     }).catch(function (err) {
       set({ status: 'error', error: message(err) });
@@ -492,7 +528,7 @@
       // Stop listening and sending first, so nothing is written back.
       paused = true;
       if (unlisten) { unlisten(); unlisten = null; }
-      clearTimeout(timer); clearTimeout(settingsTimer); clearTimeout(libraryTimer);
+      clearTimeout(timer); clearTimeout(settingsTimer); library.stop(); memory.stop();
       pending = {};
       return b.deleteAll(user.uid);
     }).then(function (n) {
@@ -542,8 +578,9 @@
     else if (s.status === 'syncing') line = s.user ? 'Signed in as ' + who + '. Syncing…' : 'Reconnecting…';
     else if (s.user) line = 'Signed in as ' + who + '.' + (s.lastSync ? ' Last synced at ' + when(s.lastSync) + '.' : '');
     return '<h2>Sync across devices</h2>' +
-      '<p class="hint">Optional. Sign in with Google to keep the same log, saved meals and recipes, ' +
-      'profile (age, sex, height, weight, activity) and dietary settings on your phone and computer. They are then also stored in ' +
+      '<p class="hint">Optional. Sign in with Google to keep the same log, saved meals, recipes and supplements, ' +
+      'what Food Log has learnt from your corrections, your profile (age, sex, height, weight, activity), ' +
+      'dietary and display settings on your phone and computer. They are then also stored in ' +
       'Food Log’s Firebase project on Google Cloud, readable only by your signed-in account. Your Gemini ' +
       'key never leaves this device. The copy here stays the main one, and signing out leaves it as it ' +
       'is.</p>' +
@@ -554,7 +591,8 @@
           ' of log, your settings, saved meals and recipes, and your Food Log sign-in. The log on this device is untouched.</p></div>'
         : '') +
       (s.user && confirming
-        ? '<div class="note danger"><p>This deletes every day of your log, your settings, saved meals and recipes ' +
+        ? '<div class="note danger"><p>This deletes every day of your log, your settings, saved meals, recipes, ' +
+          'supplements and what Food Log has learnt ' +
           'that Food Log stored in the cloud for ' + esc(s.user.email || 'this account') + ', and your Food Log ' +
           'sign-in. Your other devices stop syncing. The log on this device stays as it is. Google will ask you to ' +
           'confirm it is you.</p></div>' +

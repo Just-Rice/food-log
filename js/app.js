@@ -55,6 +55,14 @@
     plants_unknown: 'Typed-in, scanned and unmatched photo entries are not counted, since the food behind them is not known.',
     plants_note: 'Vegetables, fruit, pulses, grains, nuts, seeds, herbs, spices and mushrooms each count once, however they were cooked. A wider range of plants is linked to a more varied gut microbiome (American Gut Project, McDonald et al., 2018).',
     report_plants: 'Different plant foods',
+    your_usual: 'your usual', taught_match: 'Matched the way you chose last time.',
+    usual_hint: 'Scaled to your usual portion: {pct}% of the reader’s guess, from the {n} times you measured it.',
+    usual_hint_one: 'Scaled to your usual portion: {pct}% of the reader’s guess, from the one time you measured it.',
+    learnt_title: 'What Food Log has learnt',
+    learnt_lede: 'When you change a match or measure an item on a photo or description, Food Log remembers it for that name next time. It never changes anything you have logged.',
+    learnt_none: 'Nothing yet.', learnt_match: 'matched as {food}', learnt_model: 'kept as the reader’s own estimate',
+    learnt_portion: 'your portions ≈ {pct}% of the reader’s guess ({n} measured)',
+    forget: 'Forget', forget_all: 'Forget everything',
     edit_entry: 'Edit', rename: 'Rename', move_to: 'Move to', move: 'Move', name_label: 'Name',
     copy_meal: 'Copy this meal to…', copy: 'Copy', same_as_yesterday: 'Same as yesterday’s {meal}',
     copied_n: 'Copied {n} to {day}.', moved_to: 'Moved to {day}.', day_label: 'Day',
@@ -1656,7 +1664,8 @@
     });
     main.querySelectorAll('input[data-entry]').forEach(function (inp) {
       inp.addEventListener('change', function () {
-        var g = Number(inp.value);
+        var g = Number(inp.value), e = Tracker.find(logState.date, inp.dataset.entry);
+        if (g > 0 && e && window.Memory && e.label && e.modelGrams) Memory.learnPortion(e.label, g, e.modelGrams);
         if (g > 0) Tracker.update(logState.date, inp.dataset.entry, { grams: g, measure: t('measure_typed') });
         render();
       });
@@ -1671,6 +1680,7 @@
         if (!e) return;
         var m = readMeasure(key, b.dataset.mweigh ? 'weigh' : 'unit', e.slug && FOOD_BY_SLUG[e.slug]);
         if (!m) return;
+        if (window.Memory && e.label && e.modelGrams) Memory.learnPortion(e.label, m.grams, e.modelGrams);
         Tracker.update(logState.date, e.id, { grams: m.grams, measure: m.label });
         logState.measuring = null;
         render();
@@ -1837,13 +1847,28 @@
   function prepareItems(items) {
     return items.map(function (it) {
       var m = photoMatches(it);
+      var cands = m.map(function (x) { return x.slug; });
+      // A food the model says is outside the diet keeps its own estimate:
+      // the compatible foods on offer would describe it wrongly.
+      var auto = it.conflict ? null : autoMatch(it, m), slug = auto, taught = false;
+      // What this person taught Food Log about this name (js/memory.js).
+      var mem = window.Memory && !it.conflict ? Memory.lookup(it.name) : null;
+      if (mem && mem.slug != null) {
+        var f = mem.slug && FOOD_BY_SLUG[mem.slug];
+        if (mem.slug === '') { slug = null; taught = true; }
+        else if (f && !Prefs.excludedReason(f)) {
+          slug = mem.slug; taught = true;
+          if (cands.indexOf(slug) < 0) cands.unshift(slug);
+        }
+      }
+      var k = mem && mem.factor && Math.abs(mem.factor - 1) >= 0.03 ? mem.factor : 1;
+      var scale = function (g) { return g > 0 ? Math.max(1, Math.round(g * k)) : g; };
       return {
         name: it.name, cooked: it.cooked, confidence: it.confidence, kcalPer100: it.kcalPer100,
-        grams: it.grams, gramsLow: it.gramsLow, gramsHigh: it.gramsHigh,
-        candidates: m.map(function (x) { return x.slug; }),
-        // A food the model says is outside the diet keeps its own estimate:
-        // the compatible foods on offer would describe it wrongly.
-        slug: it.conflict ? null : autoMatch(it, m),
+        grams: scale(it.grams), gramsLow: scale(it.gramsLow), gramsHigh: scale(it.gramsHigh),
+        modelGrams: it.grams, autoSlug: auto, taught: taught,
+        usual: k !== 1 ? { factor: k, n: mem.n } : null,
+        candidates: cands, slug: slug,
         conflict: it.conflict || '', allergens: it.allergens || [],
         include: true, measured: false, measure: ''
       };
@@ -2257,6 +2282,7 @@
       }).join('') +
       (it.confidence === 'low' ? ' <span class="tag warn-tag">' + esc(t('unsure')) + '</span>' : '') +
       (it.measured ? ' <span class="tag measured-tag">' + esc(t('measured')) + '</span>' : '') +
+      (it.usual && !it.measured ? ' <span class="tag usual-tag">' + esc(t('your_usual')) + '</span>' : '') +
       '</div>' +
       '<select data-pmatch="' + i + '" aria-label="' + esc(t('match_as') + ': ' + it.name) + '">' +
       it.candidates.map(function (s) {
@@ -2275,7 +2301,9 @@
             usda: Math.round(per100), model: Math.round(it.kcalPer100)
           })) + '</p>'
         : '') +
-      (!it.slug ? '<p class="hint">' + esc(t('snap_no_match')) + '</p>' : '') +
+      (!it.slug && !it.taught ? '<p class="hint">' + esc(t('snap_no_match')) + '</p>' : '') +
+      (it.taught && !it.rematched ? '<p class="hint">' + esc(t('taught_match')) + '</p>' : '') +
+      (it.usual && !it.measured ? '<p class="hint">' + esc(t(it.usual.n === 1 ? 'usual_hint_one' : 'usual_hint', { pct: Math.round(it.usual.factor * 100), n: it.usual.n })) + '</p>' : '') +
       (it.measured && it.measure ? '<p class="hint">' + esc(t('measured') + ': ' + it.measure) + '</p>' : '') +
       measurePanel('review', i, food, it.grams, snap.openMeasure === i) +
       '</div>' +
@@ -2396,7 +2424,9 @@
     main.querySelectorAll('[data-pmatch]').forEach(function (sel) {
       sel.addEventListener('change', function () {
         rememberMeal('photoMeal');
-        snap.items[Number(sel.dataset.pmatch)].slug = sel.value || null;
+        var it = snap.items[Number(sel.dataset.pmatch)];
+        it.slug = sel.value || null;
+        it.rematched = true;
         render();
       });
     });
@@ -2420,6 +2450,7 @@
           b.addEventListener('click', function () {
             var it = snap.items[i];
             it.slug = b.dataset.pset;
+            it.rematched = true;
             if (it.candidates.indexOf(it.slug) < 0) it.candidates.unshift(it.slug);
             rememberMeal('photoMeal');
             render();
@@ -2486,9 +2517,13 @@
         ? dateEl.value : Tracker.today();
       snap.items.forEach(function (it) {
         if (!it.include) return;
+        if (window.Memory) {
+          if (it.rematched) Memory.learnMatch(it.name, it.slug || '');
+          if (it.measured && it.modelGrams) Memory.learnPortion(it.name, it.grams, it.modelGrams);
+        }
         var food = it.slug && FOOD_BY_SLUG[it.slug];
         var base = {
-          grams: it.grams, gramsLow: it.gramsLow, gramsHigh: it.gramsHigh,
+          grams: it.grams, gramsLow: it.gramsLow, gramsHigh: it.gramsHigh, modelGrams: it.modelGrams,
           meal: logState.meal, source: 'photo', label: it.name, photoId: snap.photoId,
           plateAssumed: snap.plateCm || 26,
           measured: it.measured, measure: it.measure
@@ -2797,6 +2832,25 @@
     if (custom) custom.addEventListener('change', function () { Prefs.set('customExclude', custom.value); render(); });
   }
 
+  function learntCard() {
+    if (!window.Memory) return '';
+    var items = Memory.list();
+    return '<div class="card pad settings-block learnt-card"><h2>' + esc(t('learnt_title')) + '</h2>' +
+      '<p class="hint">' + esc(t('learnt_lede')) + '</p>' +
+      (items.length
+        ? '<ul class="log-list">' + items.map(function (x) {
+            var bits = [];
+            if (x.slug === '') bits.push(t('learnt_model'));
+            else if (x.slug && FOOD_BY_SLUG[x.slug]) bits.push(t('learnt_match', { food: FOOD_BY_SLUG[x.slug].name }));
+            if (x.factor) bits.push(t('learnt_portion', { pct: Math.round(x.factor * 100), n: x.n }));
+            return '<li><span class="l-name">' + esc(x.label) + '<span class="l-sub">' + esc(bits.join(' · ')) + '</span></span>' +
+              '<button class="chip" type="button" data-forget="' + esc(x.key) + '">' + esc(t('forget')) + '</button></li>';
+          }).join('') + '</ul>' +
+          '<div class="btn-row" style="margin-top:10px"><button class="btn ghost small" type="button" id="forgetAll">' +
+          esc(t('forget_all')) + '</button></div>'
+        : '<p>' + esc(t('learnt_none')) + '</p>') + '</div>';
+  }
+
   function installCard() {
     if (!window.PWA) return '';
     var body;
@@ -2880,6 +2934,7 @@
       '<p class="hint">' + esc(t('hide_kcal_lede')) + '</p>' +
       '<label class="toggle-row"><input type="checkbox" id="hideKcal"' + (showKcal() ? '' : ' checked') + '> ' +
       esc(t('hide_kcal_label')) + '</label></div>' +
+      learntCard() +
       installCard() + remindersCard() +
 
       '<div class="card pad settings-block"><h2>' + esc(t('theme')) + '</h2>' +
@@ -2903,6 +2958,11 @@
     bindLocalCards();
     bindDietCard();
     bindInstallAndReminders();
+    main.querySelectorAll('[data-forget]').forEach(function (b) {
+      b.addEventListener('click', function () { Memory.forget(b.dataset.forget); render(); });
+    });
+    var fa = document.getElementById('forgetAll');
+    if (fa) fa.addEventListener('click', function () { Memory.forgetAll(); render(); });
     var syncEl = document.querySelector('.sync-card');
     if (syncEl && window.Sync) Sync.mountCard(syncEl);
 

@@ -42,6 +42,15 @@ Mixed dishes (a curry, a burger, sushi, a soup) keep the model's own estimate, b
 single ingredient record describes them. Nothing is logged until you have checked it, and
 any item can be re-matched by searching the food list.
 
+**It learns your portions.** Change a match on the review screen ("curry" → cooked lentils)
+and the next item the reader calls "curry" is matched the same way. Weigh or measure an item
+— on the review screen or later on Today — and Food Log keeps the ratio of your weight to the
+reader's guess for that name; the next guess is scaled by the median of the last five (never
+more than 2× either way), so three rotis still read as three, just your rotis. Such items are
+tagged *your usual* and stay estimates. Accepting an automatic match teaches nothing, nothing
+already logged is ever changed, and Settings lists everything learnt with a Forget button. It
+syncs with the rest.
+
 For better amounts, put a bank card beside the plate: it is the same size everywhere
 (85.6 × 54 mm), so the model scales every item from it, and the review says so. Or
 **describe the meal** instead — typed, or spoken where the browser has speech recognition
@@ -172,7 +181,7 @@ copy on the device stays the main one: days are merged entry by entry, the most 
 wins, and a deletion leaves a tombstone for 90 days so another device cannot hand the entry
 back. Edits are sent two seconds after you stop typing, and changes from your other devices
 arrive live. Signing out leaves the local log as it is. Saved meals and recipes sync the same
-way, and so do your profile and dietary settings — but never a Gemini key, the theme, the
+way, and so does what Food Log has learnt; so do your profile and dietary settings — but never a Gemini key, the theme, the
 engine choice or the on-device model. `tests/sync*.test.mjs` run several simulated devices
 against an in-memory backend to check they converge.
 
@@ -267,6 +276,7 @@ js/local-worker.js  Web Worker running Gemma 4 E2B with Transformers.js 4.3.1 (W
 js/sync.js        optional Google sign-in sync through Firestore
 js/barcode.js     camera scanning, check digits, Open Food Facts lookup and allergen mapping
 js/library.js     saved meals, recipes and supplements, recipe nutrition, merge for sync
+js/memory.js      what Food Log learns from corrections: matches and portion factors
 js/gaps.js        the week's low nutrients, the foods suggested for them, plant variety
 js/csv.js         the log as spreadsheet files
 js/pwa.js         service-worker registration, online state, install prompt, .ics reminders

@@ -100,7 +100,7 @@
   // and "White mushroom (UV-exposed)" are both "mushroom".
   function kindOf(f) {
     var w = f.name.toLowerCase().split(/[,(]/)[0].trim().split(' ').slice(-1)[0];
-    if (w.length < 4 || /(ss|us|is)$/.test(w)) return w;          // hummus, asparagus
+    if (w.length < 4 || /(ss|us)$/.test(w)) return w;             // hummus, asparagus (rotis, idlis do lose the s)
     if (/ies$/.test(w)) return w.slice(0, -3) + 'y';                // berries
     if (/(ch|sh|x|o)es$/.test(w)) return w.slice(0, -2);            // peaches, tomatoes
     return w.replace(/s$/, '');                                     // mushrooms, beans

@@ -259,6 +259,10 @@
     meals: function () { return sorted(data.meals); },
     recipes: function () { return sorted(data.recipes); },
     supplements: function () { return sorted(data.supplements); },
+    isEmpty: function () {
+      return !Object.keys(data.meals).length && !Object.keys(data.recipes).length &&
+        !Object.keys(data.supplements).length && !Object.keys(data.deleted).length;
+    },
     get: function (id) { return data.meals[id] || data.recipes[id] || data.supplements[id] || null; },
     saveMeal: saveMeal, saveRecipe: saveRecipe, saveSupplement: saveSupplement, SUPP_KEYS: SUPP_KEYS,
     remove: remove, nutrition: nutrition,

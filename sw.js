@@ -57,6 +57,7 @@ var SHELL = [
   'js/sync.js',
   'js/local-model.js',
   'js/library.js',
+  'js/memory.js',
   'js/gaps.js',
   'js/csv.js',
   'js/barcode.js',
