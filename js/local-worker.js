@@ -65,12 +65,13 @@ function load(dtype) {
 
 async function run(id, prompt, imageUrl, dtype) {
   await load(dtype);
-  const messages = [{ role: 'user', content: [{ type: 'image' }, { type: 'text', text: prompt }] }];
-  const text = processor.apply_chat_template(messages, {
+  // A described meal has no picture: the same model reads the text alone.
+  const content = imageUrl ? [{ type: 'image' }, { type: 'text', text: prompt }] : [{ type: 'text', text: prompt }];
+  const text = processor.apply_chat_template([{ role: 'user', content: content }], {
     enable_thinking: false,
     add_generation_prompt: true
   });
-  const image = await RawImage.fromURL(imageUrl);
+  const image = imageUrl ? await RawImage.fromURL(imageUrl) : null;
   const inputs = await processor(text, image, null, { add_special_tokens: false });
 
   let count = 0;

@@ -122,36 +122,61 @@
     return out;
   }
 
+  // ---- prompts --------------------------------------------------------------
+  // The photo and the spoken/typed description share every rule about what
+  // to report and how; only the opening and the scale rules differ.
+
+  function fieldLines(fromPhoto) {
+    return [
+      'For each distinct food give:',
+      '- "name": a plain name as a nutrition database would list it, in the state ' +
+        'it is served (e.g. "white rice, cooked", "baked beans", "fried egg", "spaghetti, ' +
+        'cooked", "naan").',
+      '- "search": one to three plain words for the main ingredient, for searching ' +
+        'a food database (e.g. "rice", "beans", "egg", "spaghetti", "naan").',
+      '- "cooked": true if it has been cooked, false if raw.',
+      '- "grams": your best estimate of the edible weight ' + (fromPhoto ? 'on the plate' : 'eaten') + ', in grams.',
+      '- "grams_low" and "grams_high": a realistic range. ' + (fromPhoto
+        ? 'A photo has no depth, so make the range honest rather than narrow.'
+        : 'Where the person gave no amount, make the range wide.'),
+      '- "kcal_per_100g": typical energy density of this item as served.',
+      '- "confidence": "high", "medium" or "low", for how sure you are what it is.'
+    ];
+  }
+
+  function ruleLines(fromPhoto) {
+    return [
+      '- Split a ' + (fromPhoto ? 'plate' : 'meal') + ' into its components where they are ' + (fromPhoto ? 'visibly ' : '') +
+        'separate (rice, beans, an egg, a sausage, a salad). A dish that cannot be separated ' +
+        '(a curry, a sandwich, a burger, a pizza slice) is one item. Never also list a part of ' +
+        'an item you have already counted whole, such as a burger\'s bun.',
+      '- Give every item its most likely specific name ("black pudding", "bolognese ' +
+        'sauce", "dal", "salmon nigiri"), never a placeholder like "curry 1" or "side dish". ' +
+        'If you are unsure what it is, still name your best guess and set confidence to "low".',
+      '- Small side bowls hold about 100 to 150 g each.',
+      '- If the food was very likely cooked in oil, ghee or butter, add the fat as ' +
+        'its own item with an estimated amount. Hidden cooking fat is the commonest reason ' +
+        'a calorie estimate is too low.'
+    ];
+  }
+
+  function replyShape(fromPhoto) {
+    return 'Reply with compact JSON only, on a single line with no spaces between ' +
+      'fields and no code fence, in this shape: {"items": [{"name": "...", "search": ' +
+      '"...", "cooked": true, "grams": 0, "grams_low": 0, "grams_high": 0, ' +
+      '"kcal_per_100g": 0, "confidence": "medium"}], ' +
+      (fromPhoto ? '"plate_cm": 26, "scale": "plate", ' : '') + '"notes": "..."}';
+  }
+
   function buildPrompt(opts) {
     var lines = [];
     lines.push('You are looking at one photo of a meal for a calorie log. Identify the foods ' +
       'and estimate how much of each is on the plate.');
     lines.push('');
-    lines.push('For each distinct food give:');
-    lines.push('- "name": a plain name as a nutrition database would list it, in the state ' +
-      'it is served (e.g. "white rice, cooked", "baked beans", "fried egg", "spaghetti, ' +
-      'cooked", "naan").');
-    lines.push('- "search": one to three plain words for the main ingredient, for searching ' +
-      'a food database (e.g. "rice", "beans", "egg", "spaghetti", "naan").');
-    lines.push('- "cooked": true if it has been cooked, false if raw.');
-    lines.push('- "grams": your best estimate of the edible weight on the plate, in grams.');
-    lines.push('- "grams_low" and "grams_high": a realistic range. A photo has no depth, so ' +
-      'make the range honest rather than narrow.');
-    lines.push('- "kcal_per_100g": typical energy density of this item as served.');
-    lines.push('- "confidence": "high", "medium" or "low", for how sure you are what it is.');
+    Array.prototype.push.apply(lines, fieldLines(true));
     lines.push('');
     lines.push('RULES:');
-    lines.push('- Split a plate into its components where they are visibly separate (rice, ' +
-      'beans, an egg, a sausage, a salad). A dish that cannot be separated (a curry, a ' +
-      'sandwich, a burger, a pizza slice) is one item. Never also list a part of an item ' +
-      'you have already counted whole, such as a burger\'s bun.');
-    lines.push('- Give every item its most likely specific name ("black pudding", "bolognese ' +
-      'sauce", "dal", "salmon nigiri"), never a placeholder like "curry 1" or "side dish". ' +
-      'If you are unsure what it is, still name your best guess and set confidence to "low".');
-    lines.push('- Small side bowls hold about 100 to 150 g each.');
-    lines.push('- If the food was very likely cooked in oil, ghee or butter, add the fat as ' +
-      'its own item with an estimated amount. Hidden cooking fat is the commonest reason ' +
-      'a calorie estimate is too low.');
+    Array.prototype.push.apply(lines, ruleLines(true));
     lines.push('- If a bank card, credit card or ID card is in the photo, it is exactly 85.6 x ' +
       '54 mm: use it as the scale for every amount, set "scale": "card", and work out ' +
       '"plate_cm" from it. A card is a far better guide than a guessed plate size.');
@@ -175,13 +200,42 @@
     lines.push('If there is no food in the photo, return an empty "items" list and say so ' +
       'in "notes".');
     lines.push('');
-    lines.push('Reply with compact JSON only, on a single line with no spaces between ' +
-      'fields and no code fence, in this shape: {"items": [{"name": "...", "search": ' +
-      '"...", "cooked": true, "grams": 0, "grams_low": 0, "grams_high": 0, ' +
-      '"kcal_per_100g": 0, "confidence": "medium"}], "plate_cm": 26, "scale": "plate", ' +
-      '"notes": "..."}');
+    lines.push(replyShape(true));
     return lines.join('\n');
   }
+
+  /**
+   * The prompt for a meal described in words, typed or spoken. The person's
+   * own amounts are used as given ("two rotis", "half a plate"); where there
+   * are none, a typical adult portion with a wide range. Speech recognition
+   * mishears food words, so the model is told to read through obvious slips.
+   */
+  function buildTextPrompt(text, opts) {
+    var said = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 800).replace(/"/g, "'");
+    var lines = [];
+    lines.push('A person describes, in their own words, a meal they ate, for a calorie log: "' +
+      said + '". Identify each food and estimate how much of it they ate, in grams.');
+    lines.push('');
+    Array.prototype.push.apply(lines, fieldLines(false));
+    lines.push('');
+    lines.push('RULES:');
+    Array.prototype.push.apply(lines, ruleLines(false));
+    lines.push('- Use the amounts they give, turned into grams with typical sizes: a roti or ' +
+      'chapati about 40 g, a slice of bread about 35 g, a medium egg about 50 g, a bowl of ' +
+      'rice or dal about 150 to 200 g, a cup about 240 ml, a tablespoon about 15 g.');
+    lines.push('- Where they give no amount, assume one typical adult portion and set ' +
+      'confidence no higher than "medium".');
+    lines.push('- The words may come from speech recognition: read through obvious mishearings ' +
+      '("brown rise" is brown rice), but do not invent foods they did not mention.');
+    Array.prototype.push.apply(lines, dietLines(opts && opts.diet));
+    lines.push('');
+    lines.push('Also give "notes": one short sentence on what most limits this estimate.');
+    lines.push('If they describe no food, return an empty "items" list and say so in "notes".');
+    lines.push('');
+    lines.push(replyShape(false));
+    return lines.join('\n');
+  }
+
 
   function num(v, lo, hi) {
     v = Number(v);
@@ -301,10 +355,29 @@
     });
   }
 
+  /**
+   * Read a meal described in words, through the same cascade and parser as a
+   * photo. Resolves to {items, notes, model}, with no picture.
+   */
+  function analyseText(engine, text, opts) {
+    opts = opts || {};
+    var prompt = buildTextPrompt(text, opts);
+    return window.Cascade.run(function (model, timeout) {
+      return engine.call(model, prompt, null, timeout);
+    }, { engine: engine.name, only: opts.model }).then(function (res) {
+      var out = parse(res.text);
+      out.dataUrl = '';
+      out.model = res.model;
+      out.plateCm = null;
+      out.scale = '';
+      return out;
+    });
+  }
+
   /** The visitor's own key. */
   function analyse(file, opts) {
     return analyseWith(window.Gemini.engine, file, opts);
   }
 
-  window.Photo = { analyse: analyse, analyseWith: analyseWith, prepare: prepare, parse: parse, buildPrompt: buildPrompt, allergenKey: allergenKey };
+  window.Photo = { analyse: analyse, analyseWith: analyseWith, analyseText: analyseText, prepare: prepare, parse: parse, buildPrompt: buildPrompt, buildTextPrompt: buildTextPrompt, allergenKey: allergenKey };
 })();

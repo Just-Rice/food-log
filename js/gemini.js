@@ -237,10 +237,9 @@
     name: 'key',
     call: function (model, prompt, base64, timeout) {
       return request({
-        contents: [{ role: 'user', parts: [
-          { inline_data: { mime_type: 'image/jpeg', data: base64 } },
-          { text: prompt }
-        ] }],
+        // A described meal has no picture: text alone.
+        contents: [{ role: 'user', parts: (base64 ? [{ inline_data: { mime_type: 'image/jpeg', data: base64 } }] : [])
+          .concat([{ text: prompt }]) }],
         generationConfig: { temperature: 0.2, responseMimeType: 'application/json', maxOutputTokens: 4096 }
       }, {
         model: model, timeout: timeout,

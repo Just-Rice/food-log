@@ -984,3 +984,12 @@ ul.product-facts { list-style: none; margin: 4px 0 8px; padding: 0; display: fle
 .save-meal label { flex: 1 1 100%; font-size: .78rem; font-weight: 600; color: var(--ink-soft); text-transform: uppercase; letter-spacing: .04em; }
 .save-meal input[type="text"] { flex: 1 1 200px; width: auto; text-align: left; }
 .recipe-sum { margin: 12px 0; font-variant-numeric: tabular-nums; }
+
+/* ---- Describing a meal ---------------------------------------------------- */
+.mode-tabs { margin: 0 0 12px; }
+#describeText {
+  width: 100%; font: inherit; padding: 10px 12px; border-radius: 10px; resize: vertical;
+  border: 1px solid var(--card-edge); background: var(--bg); color: var(--ink);
+}
+#describeText:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+blockquote.described { margin: 0; padding: 8px 12px; border-left: 3px solid var(--accent); color: var(--ink-soft); font-style: italic; }

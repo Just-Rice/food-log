@@ -88,7 +88,8 @@
           generationConfig: { temperature: 0.2, responseMimeType: 'application/json', maxOutputTokens: 4096 }
         });
         return window.Cascade.withTimeout(
-          gm.generateContent([{ inlineData: { mimeType: 'image/jpeg', data: base64 } }, prompt]),
+          // A described meal has no picture: text alone.
+          gm.generateContent(base64 ? [{ inlineData: { mimeType: 'image/jpeg', data: base64 } }, prompt] : [prompt]),
           timeout);
       }).then(function (res) {
         var text = res.response.text();

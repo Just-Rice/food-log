@@ -192,6 +192,18 @@
     snap_local_reading: 'Looking at your plate on this device…',
     snap_local_writing: 'Writing the list of foods… {n} tokens so far.',
     change_match: 'Search for a different food',
+    mode_photo: 'Photo', mode_text: 'Describe',
+    describe_label: 'What did you eat?',
+    describe_placeholder: 'e.g. two rotis, a bowl of dal and some rice, cooked in a spoon of ghee',
+    describe_go: 'Read it', mic_start: 'Speak', mic_stop: 'Stop',
+    mic_listening: 'Listening… say what you ate.',
+    mic_denied: 'Microphone permission was refused. You can type instead.',
+    mic_failed: 'Speech recognition stopped: {err}. You can type instead.',
+    describe_privacy_cloud: 'Your words are read by Google’s Gemini, as photos are, and not stored.',
+    describe_privacy_local: 'Your words are read on this device.',
+    mic_privacy: 'Speech is turned into text by your browser; in Chrome that is done on Google’s servers.',
+    describe_busy: 'Reading your description…',
+    described: 'You said: “{text}”',
     card_tip: 'For better amounts, put a bank card beside the plate: its size is fixed, so the reader can measure against it.',
     scaled_card: 'Scaled from the card in the photo.',
     snap_local_slow: 'On-device reading is slower than Gemini, from under a minute on a laptop to a few minutes on a phone.'
@@ -1686,6 +1698,7 @@
     if (snap.status === 'busy') {
       return '<div class="card pad"><div class="photo-row">' +
         (snap.dataUrl ? '<img class="photo-thumb" src="' + esc(snap.dataUrl) + '" alt="">' : '') +
+        (snap.text && !snap.dataUrl ? '<blockquote class="described">' + esc(snap.text) + '</blockquote>' : '') +
         '<div><p id="snapStatus">' + esc(snap.engine === 'local' ? localStatusText(snap.localStatus)
           : snap.only ? t('stronger_busy', { model: modelName(snap.only) }) : t('snap_busy')) +
         '</p>' + (snap.engine === 'local' ? '<p class="hint">' + esc(t('snap_local_slow')) + '</p>' : '') +
@@ -1712,6 +1725,13 @@
         ? '<p class="hint">' + esc(t('reading_for', { list: dietSummary() })) +
           ' <a href="#/settings">' + esc(t('change')) + '</a></p>'
         : '') +
+      '<div class="chips mode-tabs" role="group" aria-label="' + esc(t('mode_photo') + ' / ' + t('mode_text')) + '">' +
+      ['photo', 'text'].map(function (m) {
+        return '<button class="chip" type="button" data-snap-mode="' + m + '" aria-pressed="' + (snapMode === m) + '">' +
+          esc(t('mode_' + m)) + '</button>';
+      }).join('') + '</div>' +
+      (snapMode === 'text' ? describeForm(engine) + '</div>' : '') +
+      (snapMode === 'text' ? '' :
       '<div class="field" style="margin-bottom:12px"><label for="photoHint">' +
       esc(t('snap_hint_label')) + '</label>' +
       '<input id="photoHint" type="text" maxlength="200" value="' + esc(snap.hint) +
@@ -1725,7 +1745,95 @@
       '<p class="hint" style="margin-top:10px">' +
       esc(engine === 'local' ? t('snap_local_privacy') + ' ' + t('snap_local_slow')
         : engine === 'free' ? t('snap_free_privacy') : t('snap_privacy')) +
-      '</p></div>';
+      '</p></div>');
+  }
+
+  // ---- describing a meal in words ------------------------------------------
+  var snapMode = 'photo';
+  var SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+  var recognition = null;
+
+  function describeForm(engine) {
+    return '<div class="field" style="margin:12px 0"><label for="describeText">' + esc(t('describe_label')) + '</label>' +
+      '<textarea id="describeText" rows="3" maxlength="800" placeholder="' + esc(t('describe_placeholder')) + '">' +
+      esc(snap.text || '') + '</textarea></div>' +
+      '<p class="hint" id="micMsg" role="status"></p>' +
+      '<div class="btn-row"><button class="btn" type="button" id="describeGo">' + esc(t('describe_go')) + '</button>' +
+      (SpeechRec ? '<button class="btn ghost" type="button" id="micBtn" aria-pressed="false">' + esc(t('mic_start')) + '</button>' : '') +
+      '</div>' +
+      '<p class="hint" style="margin-top:10px">' +
+      esc(engine === 'local' ? t('describe_privacy_local') : t('describe_privacy_cloud')) +
+      (SpeechRec ? ' ' + esc(t('mic_privacy')) : '') + '</p>';
+  }
+
+  function stopListening() {
+    if (recognition) { try { recognition.stop(); } catch (e) { /* already stopped */ } recognition = null; }
+  }
+
+  function toggleMic() {
+    var btn = document.getElementById('micBtn'), box = document.getElementById('describeText'), msg = document.getElementById('micMsg');
+    if (recognition) { stopListening(); return; }
+    var rec = new SpeechRec();
+    rec.lang = navigator.language || 'en-GB';
+    rec.interimResults = true;
+    rec.continuous = false;
+    var base = box.value ? box.value.replace(/\s*$/, ' ') : '';
+    rec.onresult = function (ev) {
+      var said = '';
+      for (var i = 0; i < ev.results.length; i++) said += ev.results[i][0].transcript;
+      box.value = base + said;
+      snap.text = box.value;
+    };
+    rec.onerror = function (ev) {
+      if (msg) msg.textContent = ev.error === 'not-allowed' || ev.error === 'service-not-allowed'
+        ? t('mic_denied') : ev.error === 'no-speech' ? '' : t('mic_failed', { err: ev.error });
+    };
+    rec.onend = function () {
+      recognition = null;
+      var b = document.getElementById('micBtn');
+      if (b) { b.textContent = t('mic_start'); b.setAttribute('aria-pressed', 'false'); }
+      var m = document.getElementById('micMsg');
+      if (m && m.textContent === t('mic_listening')) m.textContent = '';
+    };
+    recognition = rec;
+    try { rec.start(); } catch (e) { recognition = null; if (msg) msg.textContent = t('mic_failed', { err: e.message }); return; }
+    if (btn) { btn.textContent = t('mic_stop'); btn.setAttribute('aria-pressed', 'true'); }
+    if (msg) msg.textContent = t('mic_listening');
+  }
+
+  /** Read a described meal; like startPhoto, but words instead of a picture. */
+  function startDescribe(text, opts) {
+    opts = opts || {};
+    text = String(text || '').trim();
+    if (!text) return;
+    stopListening();
+    var engine = opts.engine || engineChoice();
+    if (!engine) return;
+    var before = opts.only ? snap : null;
+    snap = { status: 'busy', dataUrl: '', hint: snap.hint, engine: engine, localStatus: null,
+             only: opts.only || null, text: text };
+    render();
+    var popts = { model: opts.only || undefined, diet: dietOpts() };
+    if (engine === 'key' && !popts.model && Gemini.getPreference() !== Gemini.AUTO) popts.model = Gemini.getPreference();
+    var job = engine === 'local'
+      ? LocalModel.analyseText(text, popts, function (st) {
+          if (snap.status !== 'busy') return;
+          snap.localStatus = st;
+          var el = document.getElementById('snapStatus');
+          if (el) el.textContent = localStatusText(st);
+        })
+      : Photo.analyseText(engine === 'free' ? FirebaseEngine.engine : Gemini.engine, text, popts);
+    job.then(function (res) {
+      snap = {
+        status: 'review', dataUrl: '', notes: res.notes, hint: snap.hint, engine: engine,
+        model: res.model || null, text: text, scale: '', plateCm: null,
+        items: prepareItems(res.items), photoId: Tracker.newId()
+      };
+    }).catch(function (err) {
+      var msg = err && err.message ? err.message : String(err);
+      if (before) { snap = before; snap.strongerError = t('stronger_failed', { msg: msg }); }
+      else snap = { status: 'error', error: msg, errorCode: err && err.code, hint: snap.hint, text: text };
+    }).then(function () { if (route.name === 'snap') render(); });
   }
 
   function localStatusText(s) {
@@ -1747,14 +1855,14 @@
     return '<div class="card pad photo-card">' +
       '<strong>' + esc(t('snap_review')) + '</strong>' +
       '<div class="photo-row" style="margin-top:10px">' +
-      '<img class="photo-thumb" src="' + esc(snap.dataUrl) + '" alt="">' +
+      (snap.dataUrl ? '<img class="photo-thumb" src="' + esc(snap.dataUrl) + '" alt="">' : '') +
       '<div><div class="photo-total">' + esc(kcalText(lo, hi)) + ' <span class="u">kcal</span></div>' +
       '<p class="hint" style="margin:2px 0 0">' + esc(t('snap_best_guess', { n: Math.round(mid) })) +
       (nIn ? ' ' + esc(t('snap_measured_share', { m: nMeasured, n: nIn })) : '') + '</p>' +
       (snap.notes ? '<p class="hint" style="margin:6px 0 0">' + esc(snap.notes) + '</p>' : '') +
       (snap.model ? '<p class="hint" style="margin:6px 0 0">' + esc(t('read_by', { model: modelName(snap.model) })) +
         (snap.scale === 'card' ? ' ' + esc(t('scaled_card')) : '') + '</p>' : '') +
-      (snap.engine !== 'local' && snap.file && Config.STRONGER && snap.model !== Config.STRONGER
+      (snap.engine !== 'local' && (snap.file || snap.text) && Config.STRONGER && snap.model !== Config.STRONGER
         ? '<button class="btn ghost small" type="button" id="photoStronger" style="margin-top:8px">' +
           esc(t('try_stronger', { model: modelName(Config.STRONGER) })) + '</button>'
         : '') +
@@ -1763,7 +1871,8 @@
       ((Prefs.get().allergens || []).length
         ? '<p class="hint warn-text">' + esc(t('allergy_disclaimer')) + '</p>' : '') +
       // A card in the photo is a better scale than any plate size typed in.
-      (snap.items.length && snap.scale !== 'card' ? platePanel('review', 'photo', snap.plateCm) : '') +
+      (snap.text && !snap.file ? '<p class="hint">' + esc(t('described', { text: snap.text })) + '</p>' : '') +
+      (snap.items.length && snap.file && snap.scale !== 'card' ? platePanel('review', 'photo', snap.plateCm) : '') +
       (snap.plateNotice ? '<p class="hint">' + esc(snap.plateNotice) + '</p>' : '') +
       (snap.items.length
         ? '<ul class="photo-items">' + snap.items.map(itemRow).join('') + '</ul>'
@@ -1899,6 +2008,26 @@
 
   function bindSnap() {
     bindLocalCards();
+    main.querySelectorAll('[data-snap-mode]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var box = document.getElementById('describeText');
+        if (box) snap.text = box.value;
+        stopListening();
+        snapMode = b.dataset.snapMode;
+        render();
+      });
+    });
+    var dGo = document.getElementById('describeGo');
+    if (dGo) {
+      var box = document.getElementById('describeText');
+      box.addEventListener('input', function () { snap.text = box.value; });
+      dGo.addEventListener('click', function () { startDescribe(box.value); });
+      box.addEventListener('keydown', function (ev) {
+        if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) startDescribe(box.value);
+      });
+    }
+    var mic = document.getElementById('micBtn');
+    if (mic) mic.addEventListener('click', toggleMic);
     main.querySelectorAll('[data-engine]').forEach(function (b) {
       b.addEventListener('click', function () {
         try { localStorage.setItem(ENGINE_KEY, b.dataset.engine); } catch (e) { /* ignore */ }
@@ -1984,7 +2113,8 @@
     if (stronger) {
       stronger.addEventListener('click', function () {
         rememberMeal('photoMeal');
-        startPhoto(snap.file, { only: Config.STRONGER, engine: snap.engine });
+        if (snap.text && !snap.file) startDescribe(snap.text, { only: Config.STRONGER, engine: snap.engine });
+        else startPhoto(snap.file, { only: Config.STRONGER, engine: snap.engine });
       });
     }
     var plateBtn = main.querySelector('[data-plate="review-photo"]');
@@ -2264,6 +2394,7 @@
 
   function onHash() {
     closeScanner();
+    stopListening();
     var prev = route.name;
     route = parseRoute();
     if (route.name === 'today' && !route.arg) logState.date = Tracker.today();

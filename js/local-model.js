@@ -239,7 +239,30 @@
     });
   }
 
+  /** Read a meal described in words on the device. Same result shape, no picture. */
+  function analyseText(text, opts, onStatus) {
+    var Photo = window.Photo;
+    if (onStatus) onStatus({ phase: 'loading' });
+    return load().then(function () {
+      if (onStatus) onStatus({ phase: 'reading' });
+      return new Promise(function (resolve, reject) {
+        var id = nextId++;
+        pending[id] = { resolve: resolve, reject: reject, onStatus: onStatus };
+        ensureWorker().postMessage({
+          type: 'run', id: id, prompt: Photo.buildTextPrompt(text, opts), image: null,
+          dtype: caps && caps.dtype
+        });
+      });
+    }).then(function (reply) {
+      var out = Photo.parse(reply);
+      out.dataUrl = '';
+      out.plateCm = null;
+      return out;
+    });
+  }
+
   window.LocalModel = {
+    analyseText: analyseText,
     NAME: 'Gemma 4 E2B',
     check: check, load: load, stop: stop, remove: remove, analyse: analyse,
     isDownloaded: isDownloaded,
