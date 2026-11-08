@@ -53,6 +53,18 @@ The same test found the matcher turning *french fries* into dry french beans and
 pudding* into black-eyed peas; `tests/photo-corpus.json` keeps those 20 real replies and
 `tests/match.test.mjs` checks the matcher never does it again.
 
+**Dietary settings** — vegetarian, vegan or pescatarian, eleven allergens and any foods you
+name, set in Settings and shared with Food is Medicine. Foods outside them are hidden from
+search, recent foods and photo matches, and the photo reader is told about them — but diets
+and allergies are told differently, on purpose. Someone vegetarian photographs food they
+eat, so an ambiguous patty is read as a veggie patty and pieces that could be paneer or
+chicken as paneer; only an unmistakable exception is named, and it is flagged ("not
+vegetarian: contains bacon") rather than renamed. Allergies get the opposite rule: the model
+is told never to leave an allergen out or rename a food to make it fit, and to flag anything
+that visibly or usually contains one ("may contain peanuts"), because telling it "this cannot
+contain peanuts" would invite it to relabel a peanut sauce as something safe. The review
+screen says plainly that Food Log cannot tell whether a meal is safe for an allergy.
+
 **On-device model** — Google's open **Gemma 4 E2B** can read the photo in the browser
 itself, through [Transformers.js](https://huggingface.co/docs/transformers.js) and WebGPU.
 No daily limit, and the photo never leaves the device. It is a one-time download of about

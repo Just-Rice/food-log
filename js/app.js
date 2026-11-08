@@ -109,9 +109,21 @@
     key_placeholder: 'Paste your key', save: 'Save', remove_key: 'Remove key',
     key_shared_warning: 'Do not save a key on a shared or public computer.',
     profile_section: 'Profile and dietary settings',
-    profile_lede: 'Your profile and dietary restrictions are shared with Food is Medicine and edited there.',
+    profile_lede: 'Your profile is shared with Food is Medicine and edited there.',
     profile_none: 'No profile set.',
     edit_profile: 'Edit profile', edit_diet: 'Dietary settings',
+    dietary_title: 'Dietary settings',
+    dietary_hint: 'Foods outside these settings are hidden from search, recent foods and photo matches, and the photo reader is told about them. Shared with Food is Medicine.',
+    diet_label: 'Diet', allergens_label: 'Allergies & intolerances',
+    diet_none: 'No restrictions', diet_vegetarian: 'Vegetarian', diet_vegan: 'Vegan', diet_pescatarian: 'Pescatarian',
+    a_milk: 'Milk', a_lactose: 'Lactose', a_egg: 'Egg', a_fish: 'Fish', a_crustacean: 'Crustacean shellfish',
+    a_mollusc: 'Molluscs', a_treenut: 'Tree nuts', a_peanut: 'Peanuts', a_soy: 'Soy', a_gluten: 'Gluten', a_sesame: 'Sesame',
+    custom_excl: 'Other foods to avoid',
+    custom_excl_hint: 'Comma-separated, matched against food names, e.g. "mushroom, coriander".',
+    reading_for: 'Reading for: {list}.', change: 'Change',
+    no_x: 'no {x}',
+    not_diet: 'not {diet}', may_contain: 'may contain {x}', avoid_tag: 'check: {x}',
+    allergy_disclaimer: 'Food Log flags what the photo suggests, but it cannot tell whether a meal is safe for an allergy. Hidden ingredients do not show in a picture: check with whoever made it.',
     theme: 'Theme', theme_system: 'Match system', theme_light: 'Light', theme_dark: 'Dark',
     data_title: 'Your log',
     data_lede: 'The log lives only in this browser. Export it to keep a copy or move it to another device.',
@@ -672,7 +684,8 @@
     var seen = {}, recent = [];
     for (var i = 0; i < 14 && recent.length < 10; i++) {
       Tracker.day(Tracker.shift(date, -i)).slice().reverse().forEach(function (e) {
-        if (e.slug && !seen[e.slug] && FOOD_BY_SLUG[e.slug] && recent.length < 10) {
+        if (e.slug && !seen[e.slug] && FOOD_BY_SLUG[e.slug] && recent.length < 10 &&
+            !Prefs.excludedReason(FOOD_BY_SLUG[e.slug])) {
           seen[e.slug] = true;
           recent.push(e);
         }
@@ -909,12 +922,20 @@
 
     var COOKED = /\b(cooked|boiled|baked|fried|scrambled|roasted|porridge)\b/;
     return FOODS.map(function (f) {
+      // Foods outside the person's dietary settings are never offered.
+      if (Prefs.excludedReason(f)) return null;
       var hay = haystack(f), best = -Infinity;
       queries.forEach(function (x) {
         if (x.re ? x.re.test(hay) : hay.indexOf(x.q) >= 0) {
           var r = relevance(f, x.q);
           // A whole-word query should not earn relevance's prefix score.
           if (x.re && r === 90 && !x.re.test(f.name.toLowerCase())) r = 30;
+          // Same main word, same kind of food: "jeera rice" is rice, and
+          // "White rice" is about rice where "Rice noodles" is about noodles.
+          if (x.re) {
+            if (f._head == null) f._head = headWord(f.name);
+            if (f._head === x.q) r += 15;
+          }
           best = Math.max(best, r + x.bonus);
         }
       });
@@ -990,7 +1011,10 @@
         name: it.name, cooked: it.cooked, confidence: it.confidence, kcalPer100: it.kcalPer100,
         grams: it.grams, gramsLow: it.gramsLow, gramsHigh: it.gramsHigh,
         candidates: m.map(function (x) { return x.slug; }),
-        slug: autoMatch(it, m),
+        // A food the model says is outside the diet keeps its own estimate:
+        // the compatible foods on offer would describe it wrongly.
+        slug: it.conflict ? null : autoMatch(it, m),
+        conflict: it.conflict || '', allergens: it.allergens || [],
         include: true, measured: false, measure: ''
       };
     });
@@ -999,6 +1023,39 @@
   function itemPer100(it) {
     if (it.slug && FOOD_BY_SLUG[it.slug]) return FOOD_BY_SLUG[it.slug].nutrients.kcal || 0;
     return it.kcalPer100 || 0;
+  }
+
+  // ---- dietary settings (shared with Food is Medicine) ---------------------
+
+  /** The person's dietary settings, in the shape Photo.buildPrompt takes. */
+  function dietOpts() {
+    var p = Prefs.get();
+    return {
+      diet: p.diet,
+      allergens: (p.allergens || []).slice(),
+      custom: String(p.customExclude || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean)
+    };
+  }
+
+  /** "vegetarian · no peanuts · no mushroom", or '' with no restrictions. */
+  function dietSummary() {
+    var d = dietOpts(), parts = [];
+    if (d.diet && d.diet !== 'none') parts.push(t('diet_' + d.diet).toLowerCase());
+    d.allergens.forEach(function (a) { parts.push(t('no_x', { x: t('a_' + a).toLowerCase() })); });
+    d.custom.forEach(function (c) { parts.push(t('no_x', { x: c })); });
+    return parts.join(' · ');
+  }
+
+  /**
+   * The person's allergens a photo item may contain: what the model flagged,
+   * plus the allergen tags of the food it is matched to.
+   */
+  function itemAllergens(it) {
+    var mine = Prefs.get().allergens || [];
+    var out = (it.allergens || []).slice();
+    var f = it.slug && FOOD_BY_SLUG[it.slug];
+    if (f) (f.allergens || []).forEach(function (a) { if (out.indexOf(a) < 0) out.push(a); });
+    return out.filter(function (a) { return mine.indexOf(a) >= 0; });
   }
 
   // ---- photo engines -------------------------------------------------------
@@ -1172,6 +1229,10 @@
           (snap.errorCode === 'ALL_SPENT' ? '<p>' + esc(t('all_spent_help')) +
             ' <a href="#/settings">' + esc(t('nav_settings')) + ' &rarr;</a></p>' : '') + '</div>'
         : '') +
+      (dietSummary()
+        ? '<p class="hint">' + esc(t('reading_for', { list: dietSummary() })) +
+          ' <a href="#/settings">' + esc(t('change')) + '</a></p>'
+        : '') +
       '<div class="field" style="margin-bottom:12px"><label for="photoHint">' +
       esc(t('snap_hint_label')) + '</label>' +
       '<input id="photoHint" type="text" maxlength="200" value="' + esc(snap.hint) +
@@ -1218,6 +1279,8 @@
         : '') +
       '</div></div>' +
       (snap.strongerError ? '<div class="note warn"><p>' + esc(snap.strongerError) + '</p></div>' : '') +
+      ((Prefs.get().allergens || []).length
+        ? '<p class="hint warn-text">' + esc(t('allergy_disclaimer')) + '</p>' : '') +
       (snap.items.length ? platePanel('review', 'photo', snap.plateCm) : '') +
       (snap.plateNotice ? '<p class="hint">' + esc(snap.plateNotice) + '</p>' : '') +
       (snap.items.length
@@ -1249,6 +1312,14 @@
       (it.include ? ' checked' : '') + ' aria-label="' + esc(t('include') + ' ' + it.name) + '"></label>' +
       '<div class="p-main">' +
       '<div class="p-name">' + esc(it.name) +
+      (it.conflict
+        ? ' <span class="tag warn-tag">' + esc((Prefs.get().diet && Prefs.get().diet !== 'none'
+            ? t('not_diet', { diet: t('diet_' + Prefs.get().diet).toLowerCase() }) + ': '
+            : '') + it.conflict) + '</span>'
+        : '') +
+      itemAllergens(it).map(function (a) {
+        return ' <span class="tag warn-tag">' + esc(t('may_contain', { x: t('a_' + a).toLowerCase() })) + '</span>';
+      }).join('') +
       (it.confidence === 'low' ? ' <span class="tag warn-tag">' + esc(t('unsure')) + '</span>' : '') +
       (it.measured ? ' <span class="tag measured-tag">' + esc(t('measured')) + '</span>' : '') +
       '</div>' +
@@ -1313,12 +1384,12 @@
     }
     render();
 
-    var popts = { hint: snap.hint, model: opts.only || undefined };
+    var popts = { hint: snap.hint, model: opts.only || undefined, diet: dietOpts() };
     if (engine === 'key' && !popts.model && Gemini.getPreference() !== Gemini.AUTO) {
       popts.model = Gemini.getPreference();   // a model chosen by hand on Food is Medicine
     }
     var job = engine === 'local'
-      ? LocalModel.analyse(file, { hint: snap.hint }, function (s) {
+      ? LocalModel.analyse(file, { hint: snap.hint, diet: dietOpts() }, function (s) {
           if (snap.status !== 'busy') return;
           snap.localStatus = s;
           var el = document.getElementById('snapStatus');
@@ -1382,7 +1453,7 @@
       inp.addEventListener('input', function () {
         var q = inp.value.trim().toLowerCase();
         if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
-        var hits = FOODS.filter(function (f) { return haystack(f).indexOf(q) >= 0; })
+        var hits = FOODS.filter(function (f) { return !Prefs.excludedReason(f) && haystack(f).indexOf(q) >= 0; })
           .sort(function (a, b) { return logRank(b, q) - logRank(a, q) || a.name.length - b.name.length; })
           .slice(0, 8);
         box.hidden = !hits.length;
@@ -1557,6 +1628,43 @@
   // ======================================================================
   // View: settings
   // ======================================================================
+  function dietCard() {
+    var p = Prefs.get();
+    return '<div class="card pad settings-block diet-card"><h2>' + esc(t('dietary_title')) + '</h2>' +
+      '<p class="hint">' + esc(t('dietary_hint')) + '</p>' +
+      '<span class="label-text">' + esc(t('diet_label')) + '</span>' +
+      '<div class="chips" role="group" aria-label="' + esc(t('diet_label')) + '" style="margin-bottom:14px">' +
+      Prefs.DIETS.map(function (d) {
+        return '<button class="chip" type="button" data-diet="' + d + '" aria-pressed="' + (p.diet === d) + '">' +
+          esc(t('diet_' + d)) + '</button>';
+      }).join('') + '</div>' +
+      '<span class="label-text">' + esc(t('allergens_label')) + '</span>' +
+      '<div class="chips" role="group" aria-label="' + esc(t('allergens_label')) + '" style="margin-bottom:14px">' +
+      Prefs.ALLERGENS.map(function (a) {
+        return '<button class="chip" type="button" data-allergen="' + a + '" aria-pressed="' +
+          ((p.allergens || []).indexOf(a) >= 0) + '">' + esc(t('a_' + a)) + '</button>';
+      }).join('') + '</div>' +
+      '<div class="field"><label for="customExcl">' + esc(t('custom_excl')) + '</label>' +
+      '<input id="customExcl" type="text" maxlength="300" value="' + esc(p.customExclude || '') + '">' +
+      '<p class="hint" style="margin-top:4px">' + esc(t('custom_excl_hint')) + '</p></div></div>';
+  }
+
+  function bindDietCard() {
+    main.querySelectorAll('[data-diet]').forEach(function (b) {
+      b.addEventListener('click', function () { Prefs.set('diet', b.dataset.diet); render(); });
+    });
+    main.querySelectorAll('[data-allergen]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var list = (Prefs.get('allergens') || []).slice(), a = b.dataset.allergen, i = list.indexOf(a);
+        if (i >= 0) list.splice(i, 1); else list.push(a);
+        Prefs.set('allergens', list);
+        render();
+      });
+    });
+    var custom = document.getElementById('customExcl');
+    if (custom) custom.addEventListener('change', function () { Prefs.set('customExclude', custom.value); render(); });
+  }
+
   function viewSettings() {
     var prof = Profile.get();
     var theme = Prefs.get('theme');
@@ -1583,8 +1691,9 @@
       '<p>' + (prof
         ? esc(prof.age + ' · ' + prof.sex + ' · ' + fmt(prof.heightCm) + ' cm · ' + fmt(prof.weightKg) + ' kg')
         : esc(t('profile_none'))) + '</p>' +
-      '<div class="btn-row"><a class="btn ghost" href="' + FIM + '#/you">' + esc(t('edit_profile')) + ' &rarr;</a>' +
-      '<a class="btn ghost" href="' + FIM + '#/settings">' + esc(t('edit_diet')) + ' &rarr;</a></div></div>' +
+      '<div class="btn-row"><a class="btn ghost" href="' + FIM + '#/you">' + esc(t('edit_profile')) + ' &rarr;</a></div></div>' +
+
+      dietCard() +
 
       '<div class="card pad settings-block"><h2>' + esc(t('theme')) + '</h2>' +
       '<select id="themeSel" aria-label="' + esc(t('theme')) + '">' + ['system', 'light', 'dark'].map(function (v) {
@@ -1600,6 +1709,7 @@
 
     logState.notice = '';
     bindLocalCards();
+    bindDietCard();
     var syncEl = document.querySelector('.sync-card');
     if (syncEl && window.Sync) Sync.mountCard(syncEl);
 

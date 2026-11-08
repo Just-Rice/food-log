@@ -61,6 +61,12 @@ const page = await browser.newPage();
 await page.goto(base);
 await page.waitForFunction(() => window.FoodLogInternals);
 
+// Single items seen in live runs after the corpus was recorded.
+corpus.push({ model: 'live (Nov 2026)', photo: 'thali, vegetarian settings', text: JSON.stringify({ items: [
+  { name: 'jeera rice', search: 'rice', cooked: true, grams: 150, grams_low: 120, grams_high: 190, kcal_per_100g: 150, confidence: 'high' }
+] }) });
+EXPECTED.push([/^jeera rice$/i, /^ricewhitecooked$|^ricebrowncooked$/]);
+
 const failures = [];
 let checked = 0;
 for (const r of corpus) {

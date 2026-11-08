@@ -55,6 +55,73 @@
     });
   }
 
+  // The app's allergen keys and the words the model is asked to use for them.
+  var ALLERGEN_WORDS = {
+    milk: 'milk', lactose: 'lactose', egg: 'egg', fish: 'fish',
+    crustacean: 'crustacean (prawns, shrimp, crab, lobster)', mollusc: 'mollusc (squid, clams, mussels, oysters)',
+    treenut: 'tree nuts', peanut: 'peanut', soy: 'soy', gluten: 'gluten (wheat, barley, rye)', sesame: 'sesame'
+  };
+  // What each diet leaves out, and how to read a plate that could go either way.
+  var DIET_RULES = {
+    vegetarian: {
+      none: 'meat, poultry, fish or seafood',
+      read: 'a patty, mince, nuggets or sausage that could be plant-based is plant-based; ' +
+        'pieces that could be paneer or tofu rather than chicken are paneer or tofu'
+    },
+    vegan: {
+      none: 'meat, poultry, fish, seafood, dairy, eggs, honey, ghee or butter',
+      read: 'a patty, mince, nuggets or sausage that could be plant-based is plant-based; ' +
+        'milk, yoghurt and cheese that could be plant-based are; scrambled "egg" that could ' +
+        'be tofu is tofu; cooking fat is vegetable oil unless it is clearly butter or ghee'
+    },
+    pescatarian: {
+      none: 'meat or poultry (fish and seafood are fine)',
+      read: 'a patty, mince or sausage that could be plant-based or fish is; pieces that ' +
+        'could be fish, paneer or tofu rather than chicken are those'
+    }
+  };
+
+  /**
+   * The person's dietary settings, as rules for the model. Diets and
+   * allergies are treated differently on purpose. Someone vegetarian
+   * photographs food they eat, so an ambiguous patty really is a veggie
+   * patty, and reading it that way makes the estimate better. An allergy is
+   * the opposite: telling the model "this cannot contain peanuts" would make
+   * it rename a peanut sauce into something safe, and false reassurance
+   * there is dangerous -- so allergens are flagged, never assumed away.
+   */
+  function dietLines(diet) {
+    var out = [];
+    if (!diet) return out;
+    var rule = DIET_RULES[diet.diet];
+    var allergens = (diet.allergens || []).filter(function (a) { return ALLERGEN_WORDS[a]; });
+    var custom = (diet.custom || []).map(function (c) { return String(c).replace(/"/g, "'").slice(0, 40); })
+      .filter(Boolean).slice(0, 12);
+    if (!rule && !allergens.length && !custom.length) return out;
+    out.push('');
+    out.push('DIETARY SETTINGS (from the person\'s own settings):');
+    if (rule) {
+      out.push('- They follow a ' + diet.diet + ' diet: no ' + rule.none + '. When an item ' +
+        'could be either, read it as the ' + diet.diet + ' version: ' + rule.read + '. Name a ' +
+        'food outside the diet only when it is unmistakable, and then add "conflict": a few ' +
+        'words saying what it is (e.g. "contains bacon").');
+    }
+    if (allergens.length) {
+      out.push('- They must avoid, for their health: ' + allergens.map(function (a) {
+        return ALLERGEN_WORDS[a];
+      }).join(', ') + '. Never leave one out or rename a food to make it fit. If an item ' +
+        'visibly contains one, or usually does as normally made (satay sauce: peanut; pesto: ' +
+        'tree nuts; naan: milk), add "allergens": a list using these words: ' +
+        allergens.join(', ') + '.');
+    }
+    if (custom.length) {
+      out.push('- They also avoid: ' + custom.join(', ') + '. If an item contains one, add ' +
+        '"conflict" saying which.');
+    }
+    out.push('- Leave out "conflict" and "allergens" for items they do not apply to.');
+    return out;
+  }
+
   function buildPrompt(opts) {
     var lines = [];
     lines.push('You are looking at one photo of a meal for a calorie log. Identify the foods ' +
@@ -96,6 +163,7 @@
       lines.push('- The person adds: "' + String(opts.hint).slice(0, 300).replace(/"/g, "'") +
         '". Trust this over your own reading of the photo.');
     }
+    Array.prototype.push.apply(lines, dietLines(opts && opts.diet));
     lines.push('');
     lines.push('Also give "plate_cm": the diameter in cm you assumed for the main plate or ' +
       'bowl when judging amounts, or 0 if there is no plate or bowl to judge by.');
@@ -139,6 +207,20 @@
     return { items: items, plate_cm: plate ? Number(plate[1]) : null, notes: noteText };
   }
 
+  /** A model's word for an allergen, as one of the app's keys, or ''. */
+  function allergenKey(w) {
+    var k = String(w || '').toLowerCase().replace(/[^a-z]/g, '');
+    var map = {
+      milk: 'milk', dairy: 'milk', lactose: 'lactose', egg: 'egg', eggs: 'egg', fish: 'fish',
+      crustacean: 'crustacean', crustaceans: 'crustacean', shellfish: 'crustacean', prawn: 'crustacean',
+      shrimp: 'crustacean', mollusc: 'mollusc', molluscs: 'mollusc', mollusk: 'mollusc', mollusks: 'mollusc',
+      treenut: 'treenut', treenuts: 'treenut', nuts: 'treenut', nut: 'treenut',
+      peanut: 'peanut', peanuts: 'peanut', groundnut: 'peanut', soy: 'soy', soya: 'soy', soybean: 'soy',
+      gluten: 'gluten', wheat: 'gluten', sesame: 'sesame'
+    };
+    return map[k] || '';
+  }
+
   /**
    * Turn the model's reply into checked items. The reply is untrusted text:
    * it may be wrapped in a code fence, missing fields, or have the range the
@@ -170,7 +252,11 @@
       lo = Math.min(lo, grams);
       hi = Math.max(hi, grams);
       var conf = String(it.confidence || '').toLowerCase();
+      var allergens = (Array.isArray(it.allergens) ? it.allergens : [])
+        .map(allergenKey).filter(function (a, j, arr) { return a && arr.indexOf(a) === j; });
       return {
+        conflict: typeof it.conflict === 'string' && it.conflict.trim() ? it.conflict.trim().slice(0, 80) : '',
+        allergens: allergens,
         name: name,
         search: String(it.search || '').trim().slice(0, 60),
         cooked: it.cooked !== false,
@@ -214,5 +300,5 @@
     return analyseWith(window.Gemini.engine, file, opts);
   }
 
-  window.Photo = { analyse: analyse, analyseWith: analyseWith, prepare: prepare, parse: parse, buildPrompt: buildPrompt };
+  window.Photo = { analyse: analyse, analyseWith: analyseWith, prepare: prepare, parse: parse, buildPrompt: buildPrompt, allergenKey: allergenKey };
 })();
