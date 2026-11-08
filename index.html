@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Food Log</title>
+<meta name="description" content="A food diary built on Food is Medicine's USDA data: log meals by search or photo, measure portions to firm up the estimate, and see the day against your own vitamin and mineral reference intakes.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>&#127869;</text></svg>">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" href="#/today">
+      <span class="brand-mark" aria-hidden="true">&#127869;</span>
+      <span class="brand-text">Food <em>Log</em></span>
+    </a>
+    <nav class="nav" id="nav" aria-label="Main"></nav>
+  </div>
+</header>
+
+<main id="main" class="wrap"></main>
+
+<footer class="footer">
+  <div class="wrap">
+    <p class="disclaimer">
+      <strong>This is not medical advice.</strong>
+      It is a food diary built on public nutrition data. It sets no diet targets, and
+      photo estimates are rough until a portion is measured. If you are managing a health
+      condition, are pregnant, or have had a difficult relationship with food, talk to a
+      doctor or dietitian before using any tracker.
+    </p>
+    <p class="colophon">
+      Foods, photographs and reference intakes come from
+      <a href="../food-is-medicine/">Food is Medicine</a>:
+      nutrition figures from <a href="https://fdc.nal.usda.gov/" rel="noopener">USDA FoodData Central</a>,
+      daily targets from the <a href="https://nap.nationalacademies.org/read/25353" rel="noopener">NASEM Dietary Reference Intakes</a>,
+      photographs from <a href="https://commons.wikimedia.org/" rel="noopener">Wikimedia Commons</a>, credited where shown.
+      Your log stays in this browser.
+    </p>
+  </div>
+</footer>
+
+<!-- The food list, photo credits and reference intakes are Food is Medicine's
+     own files, loaded from its folder on the same site so there is one copy of
+     the data. Serve the parent folder when running locally (see README). -->
+<script src="../food-is-medicine/data/foods.js"></script>
+<script src="../food-is-medicine/data/images.js"></script>
+<script src="../food-is-medicine/data/dri.js"></script>
+<script src="js/prefs.js"></script>
+<script src="js/profile.js"></script>
+<script src="js/tracker.js"></script>
+<script src="js/gemini.js"></script>
+<script src="js/photo.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
