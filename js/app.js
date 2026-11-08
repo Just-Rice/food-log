@@ -849,6 +849,29 @@
   // energy-dense as what is actually on a plate.
   var VAGUE_WORD = /^(fried|deep|cooked|boiled|baked|roasted|grilled|steamed|stewed|raw|fresh|plain|white|brown|red|green|yellow|mixed|mix|dip|sauce|gravy|curry|side|dish|style|fry|food|meal|plate|bowl|small|large|piece|pieces|slice|slices|and|with|of|in|the|homemade)$/;
 
+  /** A name without its parenthetical aside or trailing state: "dal (yellow lentil curry)" -> "dal". */
+  function mainName(name) {
+    return String(name || '').replace(/\([^)]*\)/g, ' ').split(',')[0].replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+
+  /**
+   * The word a food name is about: its last meaningful word, before any
+   * "with", "in" or "on" -- "tea with milk" is tea, not milk.
+   */
+  function headWord(phrase) {
+    var core = mainName(phrase).split(/\s+(?:with|in|on|over|topped)\s+/)[0];
+    var words = core.split(/[\s\-]+/).filter(function (w) {
+      return w.length >= 3 && !VAGUE_WORD.test(w);
+    });
+    return words.length ? words[words.length - 1] : '';
+  }
+
+  // Dishes made of several foods. The model's own energy estimate for "a
+  // bacon cheeseburger" or "salmon nigiri" is better than any single USDA
+  // ingredient here, which would count 280 g of burger as bacon or nigiri as
+  // plain fish. They are matched only to a food that is itself that dish.
+  var DISH = /(cheeseburger|hamburger|burger|sandwich|\bwrap\b|\bcurry\b|\bsoup\b|\bstew\b|chowder|pizza|\bpie\b|lasagn|casserole|biryani|pulao|pilaf|risotto|paella|fried rice|kofta|masala|makhani|korma|tikka|\bsauce\b|bolognese|stir.fry|\bsalad\b|\btaco|burrito|dumpling|ramen|\bpho\b|sushi|nigiri|\bmaki\b|\broll\b)/;
+
   function photoMatches(item) {
     var queries = [];
     function addQ(q, bonus, whole) {
@@ -862,15 +885,20 @@
       }
     }
     addQ(item.name, 10);
-    addQ(item.name.split(',')[0], 5);
+    var main = mainName(item.name);
+    addQ(main, 5);
     // "Raita/Yogurt dip" is two guesses at one thing: try each.
-    item.name.split('/').forEach(function (alt) { addQ(alt.split(',')[0], 5); });
-    addQ(item.search || '', 0);
-    // Single words are a last resort, and a cooking word on its own says
-    // nothing about the food: "fried" from "fried bread" would otherwise find
-    // a fried egg, and "curry" finds curry powder.
-    (item.search + ' ' + item.name).split(/[\s,\/()]+/).forEach(function (w) {
-      if (!VAGUE_WORD.test(w.toLowerCase())) addQ(w, -15, true);
+    main.split('/').forEach(function (alt) { addQ(alt, 5); });
+    // A one-word search must match a whole word: "dal" is not "dalia" (bulgur).
+    addQ(item.search || '', 0, !/\s/.test((item.search || '').trim()));
+    // Single words are a last resort, and only the word a name is about can
+    // stand alone. In "black pudding" that is "pudding", not "black" (which
+    // finds black-eyed peas); in "french fries" it is "fries", not "french"
+    // (dry french beans); in "malai kofta" it is "kofta", not "malai" (cream).
+    // Cooking words never stand alone: "fried" finds a fried egg.
+    main.split('/').concat([item.search || '']).forEach(function (phrase) {
+      var h = headWord(phrase);
+      if (h) addQ(h, -15, true);
     });
 
     var COOKED = /\b(cooked|boiled|baked|fried|scrambled|roasted|porridge)\b/;
@@ -903,18 +931,50 @@
   // that fails stays unmatched -- labelled, using the model's own estimate --
   // with the candidates still offered in the menu.
   var NOT_A_PORTION = /\b(powder|seasoning|spice|flour|meal|bran|oil|extract|dried|dry|mix)\b/;
+  // A cooked portion is never the raw or dry form of a grain, pulse or nut:
+  // those are two to three times as energy-dense. ("french fries" once landed
+  // on dry french beans.)
+  var DRY_FORM = /\b(raw|dry|dried|uncooked|mature seeds|flour)\b/;
+  // How far the match's energy density may stray from the model's own
+  // estimate. Wider than this and it is usually a different preparation:
+  // plain paneer (321 kcal/100 g) for paneer makhani (about 180).
+  var DENSITY_TOLERANCE = 1.6;
+
   function autoMatch(it, m) {
     if (!m.length || m[0].score < 40) return null;
+    var dish = DISH.exec(mainName(it.name));
+    var ok = [];
     // Walk down the list past unsuitable candidates, but only while they are
     // nearly as good a match as the best: a distant runner-up is a guess.
     for (var i = 0; i < m.length && m[i].score >= Math.max(40, m[0].score - 20); i++) {
       var f = FOOD_BY_SLUG[m[i].slug];
-      if (it.grams > 30 && (f.group === 'herb' || NOT_A_PORTION.test(f.name.toLowerCase()))) continue;
+      var text = (f.name + ' ' + (f.usda || '')).toLowerCase();
+      // A dish only matches a food that is itself that dish by name -- not by
+      // an alias: ground beef is also called "hamburger", a burger is not.
+      if (dish && text.indexOf(dish[1]) < 0) continue;
+      // Herbs are seasoning, not a portion -- including those filed as
+      // vegetables, like epazote ("Mexican tea", once matched to a cup of tea).
+      var herb = f.group === 'herb' || (f.tags || []).indexOf('herb') >= 0;
+      if (it.grams > 30 && (herb || NOT_A_PORTION.test(f.name.toLowerCase()))) continue;
+      // USDA calls cooked pulses "mature seeds, cooked, boiled": only a form
+      // that is not also described as cooked counts as dry.
+      if (it.cooked && /^(grain|legume|nut)$/.test(f.group) && DRY_FORM.test(text) &&
+          !/\b(cooked|boiled|baked|roasted|fried|canned|prepared)\b/.test(text)) continue;
       var k = f.nutrients.kcal || 0;
-      if (it.kcalPer100 && k && (k / it.kcalPer100 > 2 || it.kcalPer100 / k > 2)) continue;
-      return f.slug;
+      if (it.kcalPer100 && k && (k / it.kcalPer100 > DENSITY_TOLERANCE || it.kcalPer100 / k > DENSITY_TOLERANCE)) continue;
+      ok.push({ f: f, score: m[i].score, k: k });
     }
-    return null;
+    if (!ok.length) return null;
+    // Among near-equal matches, prefer the one whose energy density is
+    // closest to what the model expected: farmed salmon for sashimi it put at
+    // 208 kcal/100 g rather than lean chum salmon.
+    var near = ok.filter(function (c) { return c.score >= ok[0].score - 8; });
+    if (it.kcalPer100) {
+      near.sort(function (a, b) {
+        return Math.abs(Math.log((a.k || 1) / it.kcalPer100)) - Math.abs(Math.log((b.k || 1) / it.kcalPer100));
+      });
+    }
+    return near[0].f.slug;
   }
 
   function prepareItems(items) {
@@ -1556,6 +1616,9 @@
     if (pg) pg.scrollIntoView({ block: 'center' });
     if (route.name !== prev) window.scrollTo(0, 0);
   }
+
+  // For the matcher regression tests (tests/match.test.mjs). Read-only.
+  window.FoodLogInternals = { prepareItems: prepareItems, mainName: mainName, headWord: headWord };
 
   if (!FOODS.length || !DRI) {
     main.innerHTML = '<div class="note danger" style="margin-top:24px"><p>' + esc(t('no_data')) + '</p></div>';
