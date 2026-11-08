@@ -16,6 +16,10 @@
   'use strict';
 
   var FLAG = 'foodlog.sync.v1';       // set while signed in, so start() knows to resume
+  // The settings as last agreed with the account. Food is Medicine edits the
+  // same profile and dietary settings without telling Food Log, so a change
+  // is detected by comparing with this snapshot rather than by listening.
+  var SETTINGS_SNAPSHOT = 'foodlog.sync.settings.v1';
   var PUSH_DELAY = 2000;               // edits are batched for this long before sending
   var C = window.FoodLogConfig || {};
   var Tracker = window.Tracker;
@@ -28,6 +32,7 @@
   var pending = {};
   var timer = null;
   var hooked = false;
+  var settingsHooked = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -116,6 +121,23 @@
       push: function (uid, date, doc) {
         return load().then(function (f) { return f.fs.setDoc(f.fs.doc(f.db, 'users', uid, 'days', date), doc); });
       },
+      pullSettings: function (uid) {
+        return load().then(function (f) { return f.fs.getDoc(f.fs.doc(f.db, 'users', uid, 'settings', 'main')); })
+          .then(function (d) { return d.exists() ? d.data() : null; });
+      },
+      pushSettings: function (uid, doc) {
+        return load().then(function (f) { return f.fs.setDoc(f.fs.doc(f.db, 'users', uid, 'settings', 'main'), doc); });
+      },
+      listenSettings: function (uid, cb, onError) {
+        var stop = false, off = null;
+        load().then(function (f) {
+          if (stop) return;
+          off = f.fs.onSnapshot(f.fs.doc(f.db, 'users', uid, 'settings', 'main'), function (d) {
+            if (d.exists() && !d.metadata.hasPendingWrites) cb(d.data());
+          }, onError);
+        });
+        return function () { stop = true; if (off) off(); };
+      },
       listen: function (uid, cb, onError) {
         var stop = false, off = null;
         load().then(function (f) {
@@ -169,6 +191,125 @@
     });
   }
 
+  // ---- settings: profile and dietary settings --------------------------------
+  // Synced: the profile (age, sex, height, weight, activity) and the dietary
+  // settings. Never synced: the Gemini key, theme, photo engine choice and the
+  // on-device model -- they belong to the device, and a key must not leave it.
+
+  function canon(v) {
+    if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+    if (v && typeof v === 'object') {
+      return '{' + Object.keys(v).sort().filter(function (k) { return v[k] !== undefined; })
+        .map(function (k) { return JSON.stringify(k) + ':' + canon(v[k]); }).join(',') + '}';
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
+
+  function localSettings() {
+    var P = window.Prefs, prof = window.Profile && window.Profile.get();
+    var p = P ? P.get() : {};
+    return {
+      profile: prof ? JSON.parse(JSON.stringify(prof)) : null,
+      diet: { diet: p.diet || 'none', allergens: (p.allergens || []).slice().sort(), customExclude: p.customExclude || '' }
+    };
+  }
+
+  function isEmptySettings(s) {
+    return !s.profile && s.diet.diet === 'none' && !s.diet.allergens.length && !s.diet.customExclude;
+  }
+
+  function snapshot(v) {
+    try {
+      if (v === undefined) { var raw = localStorage.getItem(SETTINGS_SNAPSHOT); return raw ? JSON.parse(raw) : null; }
+      if (v) localStorage.setItem(SETTINGS_SNAPSHOT, JSON.stringify(v)); else localStorage.removeItem(SETTINGS_SNAPSHOT);
+    } catch (e) { return null; }
+    return v;
+  }
+
+  /** Make this device's settings what the account says, through the normal setters. */
+  function applySettings(r) {
+    var P = window.Prefs, Prof = window.Profile;
+    if (Prof) {
+      if (r.profile && Prof.valid(r.profile)) Prof.save(r.profile);
+      else if (!r.profile && Prof.get()) Prof.clear();
+    }
+    if (P && r.diet) {
+      if (P.get('diet') !== r.diet.diet) P.set('diet', r.diet.diet);
+      if (canon((P.get('allergens') || []).slice().sort()) !== canon(r.diet.allergens || [])) P.set('allergens', (r.diet.allergens || []).slice());
+      if ((P.get('customExclude') || '') !== (r.diet.customExclude || '')) P.set('customExclude', r.diet.customExclude || '');
+    }
+  }
+
+  function readRemoteSettings(doc) {
+    if (!doc || typeof doc !== 'object') return null;
+    var d = doc.diet || {};
+    var allergens = Array.isArray(d.allergens) ? d.allergens.filter(function (a) {
+      return window.Prefs && window.Prefs.ALLERGENS.indexOf(a) >= 0;
+    }).sort() : [];
+    return {
+      profile: doc.profile && window.Profile && window.Profile.valid(doc.profile) ? doc.profile : null,
+      diet: {
+        diet: window.Prefs && window.Prefs.DIETS.indexOf(d.diet) >= 0 ? d.diet : 'none',
+        allergens: allergens,
+        customExclude: typeof d.customExclude === 'string' ? d.customExclude.slice(0, 300) : ''
+      }
+    };
+  }
+
+  var settingsBusy = false;
+
+  /**
+   * Reconcile this device's settings with the account's copy `remoteDoc`
+   * (null if the account has none). Whichever side moved since the last
+   * agreed snapshot wins; if both did, the edit made on this device wins,
+   * since someone is using it. First time on a device: the account's copy
+   * wins unless this device has settings and the account has none.
+   */
+  function syncSettings(remoteDoc) {
+    var b = getBackend(), user = state.user;
+    if (!user || !b.pushSettings) return Promise.resolve();
+    var local = localSettings(), remote = readRemoteSettings(remoteDoc), snap = snapshot();
+    var L = canon(local), R = remote && canon(remote), S = snap && canon(snap);
+    var push = false, apply = false;
+    if (!remote) push = !isEmptySettings(local) || !!snap;
+    else if (!snap) { if (R !== L) { if (isEmptySettings(remote) && !isEmptySettings(local)) push = true; else apply = true; } }
+    else if (L !== S && R === S) push = true;
+    else if (R !== S && L === S) apply = true;
+    else if (L !== S && R !== S && L !== R) push = true;
+    if (apply) {
+      settingsBusy = true;
+      try { applySettings(remote); } finally { settingsBusy = false; }
+      snapshot(localSettings());
+      return Promise.resolve();
+    }
+    if (push) {
+      var doc = localSettings();
+      doc.updatedAt = Date.now();
+      return b.pushSettings(user.uid, doc).then(function () {
+        snapshot(localSettings());
+      });
+    }
+    if (remote) snapshot(local);
+    return Promise.resolve();
+  }
+
+  var settingsTimer = null;
+  function hookSettings() {
+    function changed() {
+      if (!state.user || settingsBusy) return;
+      clearTimeout(settingsTimer);
+      settingsTimer = setTimeout(function () {
+        var b = getBackend();
+        if (!b.pullSettings) return;
+        b.pullSettings(state.user.uid).then(syncSettings).catch(function (err) {
+          set({ status: 'error', error: message(err) });
+        });
+      }, PUSH_DELAY);
+    }
+    if (window.Prefs && window.Prefs.onChange) window.Prefs.onChange(changed);
+    if (window.Profile && window.Profile.onChange) window.Profile.onChange(changed);
+  }
+
   /**
    * First contact after signing in: merge every day the account holds into
    * this device, send back every day the account lacks or holds differently,
@@ -176,9 +317,13 @@
    */
   function connect(user) {
     hookTracker();
+    if (!settingsHooked) { settingsHooked = true; hookSettings(); }
     set({ user: user, status: 'syncing', error: '' });
     var b = getBackend();
-    return b.pullAll(user.uid).then(function (remote) {
+    var settingsDone = b.pullSettings
+      ? b.pullSettings(user.uid).then(syncSettings)
+      : Promise.resolve();
+    return settingsDone.then(function () { return b.pullAll(user.uid); }).then(function (remote) {
       Tracker.mergeDays(remote);
       var send = Tracker.allDates().filter(function (d) {
         return !remote[d] || !Tracker.sameDay(d, remote[d]);
@@ -186,10 +331,14 @@
       return Promise.all(send.map(function (d) { return b.push(user.uid, d, Tracker.dayDoc(d)); }));
     }).then(function () {
       if (unlisten) unlisten();
-      unlisten = b.listen(user.uid, function (date, doc) {
+      var offDays = b.listen(user.uid, function (date, doc) {
         Tracker.mergeDay(date, doc);
         set({ lastSync: Date.now() });
       }, function (err) { set({ status: 'error', error: message(err) }); });
+      var offSettings = b.listenSettings ? b.listenSettings(user.uid, function (doc) {
+        syncSettings(doc).catch(function (err) { set({ status: 'error', error: message(err) }); });
+      }, function (err) { set({ status: 'error', error: message(err) }); }) : null;
+      unlisten = function () { offDays(); if (offSettings) offSettings(); };
       set({ status: 'on', lastSync: Date.now() });
     }).catch(function (err) {
       set({ status: 'error', error: message(err) });
@@ -211,6 +360,7 @@
     clearTimeout(timer);
     pending = {};
     flag(false);
+    snapshot(null);
     set({ status: 'off', user: null, error: '' });
     return getBackend().signOut().catch(function () { /* already signed out */ });
   }
@@ -243,10 +393,11 @@
     else if (s.status === 'syncing') line = s.user ? 'Signed in as ' + who + '. Syncing…' : 'Reconnecting…';
     else if (s.user) line = 'Signed in as ' + who + '.' + (s.lastSync ? ' Last synced at ' + when(s.lastSync) + '.' : '');
     return '<h2>Sync across devices</h2>' +
-      '<p class="hint">Optional. Sign in with Google to keep the same log on your phone and computer. ' +
-      'Your log is then also stored in Food Log’s Firebase project on Google Cloud, readable only by ' +
-      'your signed-in account. The copy on this device stays the main one, and signing out leaves it ' +
-      'as it is.</p>' +
+      '<p class="hint">Optional. Sign in with Google to keep the same log, profile (age, sex, height, ' +
+      'weight, activity) and dietary settings on your phone and computer. They are then also stored in ' +
+      'Food Log’s Firebase project on Google Cloud, readable only by your signed-in account. Your Gemini ' +
+      'key never leaves this device. The copy here stays the main one, and signing out leaves it as it ' +
+      'is.</p>' +
       (line ? '<p>' + esc(line) + '</p>' : '') +
       (s.error ? '<div class="note danger"><p>' + esc(s.error) + '</p></div>' : '') +
       '<div class="btn-row">' + (s.user
