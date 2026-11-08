@@ -156,7 +156,12 @@
     return new Promise(function (resolve, reject) {
       var done = false;
       var timer = setTimeout(function () {
-        if (!done) { done = true; reject(new Error(message)); }
+        if (!done) {
+          done = true;
+          var err = new Error(message);
+          err.timeout = true;   // lets the model cascade move on to the next model
+          reject(err);
+        }
       }, ms);
       promise.then(function (v) {
         if (!done) { done = true; clearTimeout(timer); resolve(v); }
@@ -174,6 +179,8 @@
         var msg = (data && data.error && data.error.message) || body || ('HTTP ' + res.status);
         var err = new Error(msg);
         err.status = res.status;
+        // Quota failures say which quota (per day, per minute) in here.
+        err.details = data && data.error && data.error.details;
         throw err;
       }
       return data || {};
@@ -184,14 +191,19 @@
    * Send one generateContent request with the stored key and model, and
    * resolve to the reply text.
    */
+  /**
+   * Send one generateContent request with the stored key and resolve to the
+   * reply text. `opts.model` names the model (the photo cascade always does);
+   * without it the stored or automatically chosen model is used.
+   */
   function request(body, opts) {
     opts = opts || {};
     return Promise.resolve().then(function () {
       if (!getKey()) throw new Error('No API key set.');
-      if (getPreference() === AUTO && !resolvedAuto) return resolveAuto();
+      if (!opts.model && getPreference() === AUTO && !resolvedAuto) return resolveAuto();
     }).then(function () {
       return withTimeout(
-        fetch(API + '/models/' + encodeURIComponent(getModel()) +
+        fetch(API + '/models/' + encodeURIComponent(opts.model || getModel()) +
               ':generateContent?key=' + encodeURIComponent(getKey()), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -220,7 +232,25 @@
       });
   }
 
+  // The photo engine for a visitor's own key: same shape as FirebaseEngine.
+  var engine = {
+    name: 'key',
+    call: function (model, prompt, base64, timeout) {
+      return request({
+        contents: [{ role: 'user', parts: [
+          { inline_data: { mime_type: 'image/jpeg', data: base64 } },
+          { text: prompt }
+        ] }],
+        generationConfig: { temperature: 0.2, responseMimeType: 'application/json', maxOutputTokens: 4096 }
+      }, {
+        model: model, timeout: timeout,
+        cutOff: 'The reply was cut off. Try a photo with fewer separate foods.'
+      });
+    }
+  };
+
   window.Gemini = {
+    engine: engine,
     getKey: getKey, setKey: setKey, hasKey: hasKey, maskedKey: maskedKey,
     getModel: getModel, setModel: setModel, getPreference: getPreference,
     listModels: listModels, resolveAuto: resolveAuto,

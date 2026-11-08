@@ -187,35 +187,32 @@
   }
 
   /**
-   * Recognise a meal photo. Resolves to {dataUrl, items, notes}; rejects with
-   * a message fit to show the person.
+   * Recognise a meal photo with an engine -- FirebaseEngine (free, no key) or
+   * Gemini.engine (the visitor's own key) -- going down the free model list
+   * until one answers (js/cascade.js). opts: {hint, plateCm, model} where
+   * `model` pins one model, as "Try a stronger model" does. Resolves to
+   * {dataUrl, items, plateCm, notes, model}; rejects with a message fit to
+   * show the person (err.code 'ALL_SPENT' when every model is used up today).
    */
-  function analyse(file, opts) {
+  function analyseWith(engine, file, opts) {
+    opts = opts || {};
     return prepare(file).then(function (img) {
-      return window.Gemini.request({
-        contents: [{
-          role: 'user',
-          parts: [
-            { inline_data: { mime_type: 'image/jpeg', data: img.base64 } },
-            { text: buildPrompt(opts) }
-          ]
-        }],
-        generationConfig: {
-          // Low temperature: the same photo should give the same answer.
-          temperature: 0.2,
-          responseMimeType: 'application/json',
-          maxOutputTokens: 4096
-        }
-      }, {
-        timeout: 90000,
-        cutOff: 'The reply was cut off. Try a photo with fewer separate foods.'
-      }).then(function (text) {
-        var out = parse(text);
+      var prompt = buildPrompt(opts);
+      return window.Cascade.run(function (model, timeout) {
+        return engine.call(model, prompt, img.base64, timeout);
+      }, { engine: engine.name, only: opts.model }).then(function (res) {
+        var out = parse(res.text);
         out.dataUrl = img.dataUrl;
+        out.model = res.model;
         return out;
       });
     });
   }
 
-  window.Photo = { analyse: analyse, prepare: prepare, parse: parse, buildPrompt: buildPrompt };
+  /** The visitor's own key. */
+  function analyse(file, opts) {
+    return analyseWith(window.Gemini.engine, file, opts);
+  }
+
+  window.Photo = { analyse: analyse, analyseWith: analyseWith, prepare: prepare, parse: parse, buildPrompt: buildPrompt };
 })();

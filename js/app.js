@@ -57,7 +57,7 @@
     food_name: 'What was it',
     meal_breakfast: 'Breakfast', meal_lunch: 'Lunch', meal_dinner: 'Dinner', meal_snack: 'Snacks',
     snap_title: 'Snap a meal',
-    snap_lede: 'Photograph a whole plate and get each food on it, matched to the USDA list with an estimated amount. Check it, measure anything you can, then log it.',
+    snap_lede: 'Photograph a whole plate and get each food on it, matched to the USDA list with an estimated amount. Check it, measure anything you can, then log it. No key or sign-up needed.',
     snap_needs_key: 'Photo estimates use your own free Gemini API key. A key saved on Food is Medicine works here too.',
     get_free_key: 'Get a free key from Google AI Studio',
     snap_busy: 'Looking at your plate…',
@@ -103,8 +103,8 @@
     avg_title: 'Average across logged days',
     days_list: 'Logged days', entries_n: '{n} entries',
     settings_title: 'Settings',
-    key_title: 'Gemini API key',
-    key_lede: 'Used only for photo estimates and sent only to Google. It is stored in this browser under the same name Food is Medicine uses, so one key works on both.',
+    key_title: 'Your own Gemini key (optional)',
+    key_lede: 'Photo estimates work without one: Food Log reads photos through its own free service, whose daily allowance is shared by everyone using it. A free key of your own gives you a separate allowance. It is used only for photos, sent only to Google, and stored in this browser under the same name Food is Medicine uses, so one key works on both.',
     key_saved: 'Saved key: {k}', key_none: 'No key saved.',
     key_placeholder: 'Paste your key', save: 'Save', remove_key: 'Remove key',
     key_shared_warning: 'Do not save a key on a shared or public computer.',
@@ -125,7 +125,7 @@
     photo_credit: 'Photo: {author}, {license}',
     on_fim: 'On Food is Medicine',
     local_title: 'On-device model',
-    local_lede: 'Gemma 4 E2B, Google’s open model, can read your meal photos on this device: no key, no daily limit, and the photo never leaves your phone or computer. It is a one-time download of about {gb} GB, so use Wi-Fi, and it is slower than Gemini, most of all on a phone.',
+    local_lede: 'Gemma 4 E2B, Google’s open model, can read your meal photos on this device: no daily limit, and the photo never leaves your phone or computer. It is a one-time download of about {gb} GB, so use Wi-Fi. It is slower than Gemini and rougher: in testing it named simple plates well but misread a full English breakfast, so check its list carefully.',
     local_checking: 'Checking what this device can run…',
     local_download: 'Download the model ({gb} GB)',
     local_downloading: 'Downloading… {done} of about {gb} GB',
@@ -137,7 +137,13 @@
     local_try_again: 'Try again',
     local_not_cached: 'This browser did not let the site keep the model, so it will download again on your next visit. Freeing up storage space usually fixes it.',
     engine_label: 'Read the photo with',
-    engine_gemini: 'Gemini (your key)', engine_local: 'On this device',
+    engine_free: 'Free', engine_key: 'Your key', engine_local: 'On this device',
+    snap_free_privacy: 'The photo is shrunk on your device and read by Google’s Gemini through Food Log’s free service. It is not stored. Free estimates share one daily allowance across everyone using Food Log.',
+    read_by: 'Read by {model}.',
+    try_stronger: 'Try a stronger model ({model})',
+    stronger_busy: 'Asking {model}… it can take a couple of minutes when it is busy.',
+    stronger_failed: 'The stronger model could not answer: {msg} The first reading is kept.',
+    all_spent_help: 'Add your own free Gemini key in Settings for a separate allowance, or use the on-device model.',
     snap_setup: 'Photo estimates need one of these. Either works; you can set up both and choose each time.',
     snap_setup_gemini: 'Use Gemini with your own free key',
     snap_setup_gemini_lede: 'Fast and the most accurate. The photo is sent to Google with your key.',
@@ -995,21 +1001,42 @@
     return it.kcalPer100 || 0;
   }
 
-  // ---- photo engines: Gemini (own key) or the on-device model -------------
+  // ---- photo engines -------------------------------------------------------
+  //   free  -- Gemini through Food Log's Firebase project, no key (default)
+  //   key   -- Gemini with the visitor's own key, a separate allowance
+  //   local -- Gemma 4 E2B on this device
   var ENGINE_KEY = 'foodlog.engine';
+  var Config = window.FoodLogConfig || {};
+  var FirebaseEngine = window.FirebaseEngine;
 
   function enginePref() {
-    try { return localStorage.getItem(ENGINE_KEY) || ''; } catch (e) { return ''; }
+    var v;
+    try { v = localStorage.getItem(ENGINE_KEY) || ''; } catch (e) { v = ''; }
+    return v === 'gemini' ? 'key' : v;   // the name before the free engine existed
   }
 
-  /** Which engine a new photo uses, or null if neither is set up. */
+  function localReady() {
+    return !!LocalModel && (LocalModel.isDownloaded() || LocalModel.state().status === 'ready');
+  }
+
+  /** The engines this visitor can use right now, default first. */
+  function engineList() {
+    var out = [];
+    if (FirebaseEngine && FirebaseEngine.available()) out.push('free');
+    if (Gemini.hasKey()) out.push('key');
+    if (localReady()) out.push('local');
+    return out;
+  }
+
+  /** Which engine a new photo uses, or null if none is available. */
   function engineChoice() {
-    var g = Gemini.hasKey();
-    var l = !!LocalModel && (LocalModel.isDownloaded() || LocalModel.state().status === 'ready');
-    if (g && l) return enginePref() === 'local' ? 'local' : 'gemini';
-    if (g) return 'gemini';
-    if (l) return 'local';
-    return null;
+    var list = engineList(), pref = enginePref();
+    if (list.indexOf(pref) >= 0) return pref;
+    return list[0] || null;
+  }
+
+  function modelName(id) {
+    return (Config.MODEL_NAMES && Config.MODEL_NAMES[id]) || id;
   }
 
   var localCaps = null;
@@ -1123,23 +1150,28 @@
     if (snap.status === 'busy') {
       return '<div class="card pad"><div class="photo-row">' +
         (snap.dataUrl ? '<img class="photo-thumb" src="' + esc(snap.dataUrl) + '" alt="">' : '') +
-        '<div><p id="snapStatus">' + esc(snap.engine === 'local' ? localStatusText(snap.localStatus) : t('snap_busy')) +
+        '<div><p id="snapStatus">' + esc(snap.engine === 'local' ? localStatusText(snap.localStatus)
+          : snap.only ? t('stronger_busy', { model: modelName(snap.only) }) : t('snap_busy')) +
         '</p>' + (snap.engine === 'local' ? '<p class="hint">' + esc(t('snap_local_slow')) + '</p>' : '') +
         '</div></div></div>';
     }
     if (snap.status === 'review') return snapReview();
 
-    var both = Gemini.hasKey() && LocalModel && (LocalModel.isDownloaded() || LocalModel.state().status === 'ready');
+    var engines = engineList();
     return '<div class="card pad">' +
-      (both
+      (engines.length > 1
         ? '<div class="field" style="margin-bottom:12px"><span class="label-text">' + esc(t('engine_label')) + '</span>' +
           '<div class="chips" role="group" aria-label="' + esc(t('engine_label')) + '">' +
-          ['gemini', 'local'].map(function (e) {
+          engines.map(function (e) {
             return '<button class="chip" type="button" data-engine="' + e + '" aria-pressed="' + (e === engine) + '">' +
               esc(t('engine_' + e)) + '</button>';
           }).join('') + '</div></div>'
         : '') +
-      (snap.status === 'error' ? '<div class="note danger"><p>' + esc(snap.error) + '</p></div>' : '') +
+      (snap.status === 'error'
+        ? '<div class="note danger"><p>' + esc(snap.error) + '</p>' +
+          (snap.errorCode === 'ALL_SPENT' ? '<p>' + esc(t('all_spent_help')) +
+            ' <a href="#/settings">' + esc(t('nav_settings')) + ' &rarr;</a></p>' : '') + '</div>'
+        : '') +
       '<div class="field" style="margin-bottom:12px"><label for="photoHint">' +
       esc(t('snap_hint_label')) + '</label>' +
       '<input id="photoHint" type="text" maxlength="200" value="' + esc(snap.hint) +
@@ -1150,7 +1182,8 @@
       '<label class="btn ghost file-btn">' + esc(t('choose_photo')) +
       '<input type="file" accept="image/*" id="photoFile" hidden></label></div>' +
       '<p class="hint" style="margin-top:10px">' +
-      esc(engine === 'local' ? t('snap_local_privacy') + ' ' + t('snap_local_slow') : t('snap_privacy')) +
+      esc(engine === 'local' ? t('snap_local_privacy') + ' ' + t('snap_local_slow')
+        : engine === 'free' ? t('snap_free_privacy') : t('snap_privacy')) +
       '</p></div>';
   }
 
@@ -1178,7 +1211,13 @@
       '<p class="hint" style="margin:2px 0 0">' + esc(t('snap_best_guess', { n: Math.round(mid) })) +
       (nIn ? ' ' + esc(t('snap_measured_share', { m: nMeasured, n: nIn })) : '') + '</p>' +
       (snap.notes ? '<p class="hint" style="margin:6px 0 0">' + esc(snap.notes) + '</p>' : '') +
+      (snap.model ? '<p class="hint" style="margin:6px 0 0">' + esc(t('read_by', { model: modelName(snap.model) })) + '</p>' : '') +
+      (snap.engine !== 'local' && snap.file && Config.STRONGER && snap.model !== Config.STRONGER
+        ? '<button class="btn ghost small" type="button" id="photoStronger" style="margin-top:8px">' +
+          esc(t('try_stronger', { model: modelName(Config.STRONGER) })) + '</button>'
+        : '') +
       '</div></div>' +
+      (snap.strongerError ? '<div class="note warn"><p>' + esc(snap.strongerError) + '</p></div>' : '') +
       (snap.items.length ? platePanel('review', 'photo', snap.plateCm) : '') +
       (snap.plateNotice ? '<p class="hint">' + esc(snap.plateNotice) + '</p>' : '') +
       (snap.items.length
@@ -1252,19 +1291,32 @@
     it.measure = label;
   }
 
-  function startPhoto(file) {
+  /**
+   * Read a photo. opts.only pins one model ("Try a stronger model"); the
+   * engine then stays the one that read the photo the first time.
+   */
+  function startPhoto(file, opts) {
     if (!file) return;
+    opts = opts || {};
     var hintEl = document.getElementById('photoHint');
     if (hintEl) snap.hint = hintEl.value;
-    var engine = engineChoice();
+    var engine = opts.engine || engineChoice();
     if (!engine) return;
-    snap = { status: 'busy', dataUrl: '', hint: snap.hint, engine: engine, localStatus: null };
+    var before = opts.only ? snap : null;   // kept if the stronger model fails
+    snap = { status: 'busy', dataUrl: before ? before.dataUrl : '', hint: snap.hint, engine: engine,
+             localStatus: null, only: opts.only || null, file: file };
     // Show the picture straight away so the wait has something to look at.
-    Photo.prepare(file).then(function (img) {
-      if (snap.status === 'busy') { snap.dataUrl = img.dataUrl; if (route.name === 'snap') render(); }
-    }, function () { /* analyse() reports the same error */ });
+    if (!before) {
+      Photo.prepare(file).then(function (img) {
+        if (snap.status === 'busy') { snap.dataUrl = img.dataUrl; if (route.name === 'snap') render(); }
+      }, function () { /* analyse() reports the same error */ });
+    }
     render();
 
+    var popts = { hint: snap.hint, model: opts.only || undefined };
+    if (engine === 'key' && !popts.model && Gemini.getPreference() !== Gemini.AUTO) {
+      popts.model = Gemini.getPreference();   // a model chosen by hand on Food is Medicine
+    }
     var job = engine === 'local'
       ? LocalModel.analyse(file, { hint: snap.hint }, function (s) {
           if (snap.status !== 'busy') return;
@@ -1272,14 +1324,21 @@
           var el = document.getElementById('snapStatus');
           if (el) el.textContent = localStatusText(s);
         })
-      : Photo.analyse(file, { hint: snap.hint });
+      : Photo.analyseWith(engine === 'free' ? FirebaseEngine.engine : Gemini.engine, file, popts);
     job.then(function (res) {
       snap = {
-        status: 'review', dataUrl: res.dataUrl, notes: res.notes, hint: snap.hint,
+        status: 'review', dataUrl: res.dataUrl, notes: res.notes, hint: snap.hint, engine: engine,
+        model: res.model || null, file: file,
         plateCm: res.plateCm, items: prepareItems(res.items), photoId: Tracker.newId()
       };
     }).catch(function (err) {
-      snap = { status: 'error', error: err && err.message ? err.message : String(err), hint: snap.hint };
+      var msg = err && err.message ? err.message : String(err);
+      if (before) {
+        snap = before;
+        snap.strongerError = t('stronger_failed', { msg: msg });
+      } else {
+        snap = { status: 'error', error: msg, errorCode: err && err.code, hint: snap.hint };
+      }
     }).then(function () {
       if (route.name === 'snap') render();
     });
@@ -1368,6 +1427,13 @@
         if (d.open) snap.openMeasure = Number(d.dataset.mkey.replace(/^review-/, ''));
       });
     });
+    var stronger = document.getElementById('photoStronger');
+    if (stronger) {
+      stronger.addEventListener('click', function () {
+        rememberMeal('photoMeal');
+        startPhoto(snap.file, { only: Config.STRONGER, engine: snap.engine });
+      });
+    }
     var plateBtn = main.querySelector('[data-plate="review-photo"]');
     if (plateBtn) {
       plateBtn.addEventListener('click', function () {
@@ -1509,6 +1575,7 @@
       '<a href="' + esc(Gemini.STUDIO_URL) + '" rel="noopener" target="_blank">' + esc(t('get_free_key')) + '</a></div>' +
       '<p class="hint">' + esc(t('key_shared_warning')) + '</p></div>' +
 
+      (window.Sync && Sync.available() ? '<div class="card pad settings-block sync-card"></div>' : '') +
       (LocalModel ? '<div class="card pad settings-block local-card"></div>' : '') +
 
       '<div class="card pad settings-block"><h2>' + esc(t('profile_section')) + '</h2>' +
@@ -1533,6 +1600,8 @@
 
     logState.notice = '';
     bindLocalCards();
+    var syncEl = document.querySelector('.sync-card');
+    if (syncEl && window.Sync) Sync.mountCard(syncEl);
 
     document.getElementById('keySave').addEventListener('click', function () {
       var k = document.getElementById('keyIn').value.trim();
@@ -1627,6 +1696,8 @@
   if (Tracker.importedFrom()) logState.notice = t('imported_legacy');
 
   window.addEventListener('hashchange', onHash);
+  // Resume sync if this browser signed in before; a no-op otherwise.
+  if (window.Sync && Sync.available()) { try { Sync.start(); } catch (e) { /* sync is optional */ } }
   // Another tab (Food is Medicine, say) can change the shared profile.
   window.addEventListener('storage', function (ev) {
     if (ev.key === 'fim.profile.v1' || ev.key === 'fim.prefs.v1') location.reload();
