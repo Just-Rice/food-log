@@ -1266,11 +1266,17 @@
   var route = { name: 'today', arg: null };
   var NAV = [['today', 'nav_today'], ['snap', 'nav_snap'], ['history', 'nav_history'], ['settings', 'nav_settings']];
 
+  // #/today, #/today/2026-11-07, #/snap ... and #/today?add=<slug>, which is
+  // how a food page on Food is Medicine hands a food over to be logged.
   function parseRoute() {
-    var parts = location.hash.replace(/^#\/?/, '').split('/');
+    var hash = location.hash.replace(/^#\/?/, '');
+    var q = hash.indexOf('?');
+    var query = q >= 0 ? hash.slice(q + 1) : '';
+    var parts = (q >= 0 ? hash.slice(0, q) : hash).split('/');
     var name = parts[0] || 'today';
     if (!NAV.some(function (n) { return n[0] === name; })) name = 'today';
-    return { name: name, arg: parts[1] || null };
+    var add = /(?:^|&)add=([^&]+)/.exec(query);
+    return { name: name, arg: parts[1] || null, add: add ? decodeURIComponent(add[1]) : null };
   }
 
   function renderNav() {
@@ -1293,7 +1299,15 @@
     route = parseRoute();
     if (route.name === 'today' && !route.arg) logState.date = Tracker.today();
     logState.pick = route.name === prev ? logState.pick : null;
+    if (route.add && FOOD_BY_SLUG[route.add]) {
+      logState.pick = route.add;
+      logState.pickGrams = null;
+      history.replaceState(null, '', '#/today');
+      route.add = null;
+    }
     render();
+    var pg = route.name === 'today' && logState.pick && document.getElementById('pickGrams');
+    if (pg) pg.scrollIntoView({ block: 'center' });
     if (route.name !== prev) window.scrollTo(0, 0);
   }
 
