@@ -152,8 +152,12 @@
     lines.push('- If the food was very likely cooked in oil, ghee or butter, add the fat as ' +
       'its own item with an estimated amount. Hidden cooking fat is the commonest reason ' +
       'a calorie estimate is too low.');
-    lines.push('- Judge scale from what is in the picture: a dinner plate is about 26 cm ' +
-      'across, a fork about 19 cm long, a hand, a cup.');
+    lines.push('- If a bank card, credit card or ID card is in the photo, it is exactly 85.6 x ' +
+      '54 mm: use it as the scale for every amount, set "scale": "card", and work out ' +
+      '"plate_cm" from it. A card is a far better guide than a guessed plate size.');
+    lines.push('- Otherwise judge scale from what is in the picture: a dinner plate is about ' +
+      '26 cm across, a fork about 19 cm long, a hand, a cup; set "scale" to "plate" or ' +
+      '"other" for whichever you used.');
     if (opts && opts.plateCm) {
       lines.push('- The main plate or bowl is ' + opts.plateCm + ' cm across. Use that as ' +
         'the scale.');
@@ -174,7 +178,8 @@
     lines.push('Reply with compact JSON only, on a single line with no spaces between ' +
       'fields and no code fence, in this shape: {"items": [{"name": "...", "search": ' +
       '"...", "cooked": true, "grams": 0, "grams_low": 0, "grams_high": 0, ' +
-      '"kcal_per_100g": 0, "confidence": "medium"}], "plate_cm": 26, "notes": "..."}');
+      '"kcal_per_100g": 0, "confidence": "medium"}], "plate_cm": 26, "scale": "plate", ' +
+      '"notes": "..."}');
     return lines.join('\n');
   }
 
@@ -268,6 +273,7 @@
     return {
       items: items,
       plateCm: Array.isArray(data) ? null : num(data.plate_cm, 8, 45),
+      scale: !Array.isArray(data) && ['card', 'plate', 'other'].indexOf(String(data.scale)) >= 0 ? String(data.scale) : '',
       notes: typeof data.notes === 'string' ? data.notes.slice(0, 300) : ''
     };
   }

@@ -164,6 +164,8 @@
     snap_local_reading: 'Looking at your plate on this device…',
     snap_local_writing: 'Writing the list of foods… {n} tokens so far.',
     change_match: 'Search for a different food',
+    card_tip: 'For better amounts, put a bank card beside the plate: its size is fixed, so the reader can measure against it.',
+    scaled_card: 'Scaled from the card in the photo.',
     snap_local_slow: 'On-device reading is slower than Gemini, from under a minute on a laptop to a few minutes on a phone.'
   };
 
@@ -1242,6 +1244,7 @@
       '<input type="file" accept="image/*" capture="environment" id="photoCam" hidden></label>' +
       '<label class="btn ghost file-btn">' + esc(t('choose_photo')) +
       '<input type="file" accept="image/*" id="photoFile" hidden></label></div>' +
+      '<p class="hint" style="margin-top:10px">' + esc(t('card_tip')) + '</p>' +
       '<p class="hint" style="margin-top:10px">' +
       esc(engine === 'local' ? t('snap_local_privacy') + ' ' + t('snap_local_slow')
         : engine === 'free' ? t('snap_free_privacy') : t('snap_privacy')) +
@@ -1272,7 +1275,8 @@
       '<p class="hint" style="margin:2px 0 0">' + esc(t('snap_best_guess', { n: Math.round(mid) })) +
       (nIn ? ' ' + esc(t('snap_measured_share', { m: nMeasured, n: nIn })) : '') + '</p>' +
       (snap.notes ? '<p class="hint" style="margin:6px 0 0">' + esc(snap.notes) + '</p>' : '') +
-      (snap.model ? '<p class="hint" style="margin:6px 0 0">' + esc(t('read_by', { model: modelName(snap.model) })) + '</p>' : '') +
+      (snap.model ? '<p class="hint" style="margin:6px 0 0">' + esc(t('read_by', { model: modelName(snap.model) })) +
+        (snap.scale === 'card' ? ' ' + esc(t('scaled_card')) : '') + '</p>' : '') +
       (snap.engine !== 'local' && snap.file && Config.STRONGER && snap.model !== Config.STRONGER
         ? '<button class="btn ghost small" type="button" id="photoStronger" style="margin-top:8px">' +
           esc(t('try_stronger', { model: modelName(Config.STRONGER) })) + '</button>'
@@ -1281,7 +1285,8 @@
       (snap.strongerError ? '<div class="note warn"><p>' + esc(snap.strongerError) + '</p></div>' : '') +
       ((Prefs.get().allergens || []).length
         ? '<p class="hint warn-text">' + esc(t('allergy_disclaimer')) + '</p>' : '') +
-      (snap.items.length ? platePanel('review', 'photo', snap.plateCm) : '') +
+      // A card in the photo is a better scale than any plate size typed in.
+      (snap.items.length && snap.scale !== 'card' ? platePanel('review', 'photo', snap.plateCm) : '') +
       (snap.plateNotice ? '<p class="hint">' + esc(snap.plateNotice) + '</p>' : '') +
       (snap.items.length
         ? '<ul class="photo-items">' + snap.items.map(itemRow).join('') + '</ul>'
@@ -1399,7 +1404,7 @@
     job.then(function (res) {
       snap = {
         status: 'review', dataUrl: res.dataUrl, notes: res.notes, hint: snap.hint, engine: engine,
-        model: res.model || null, file: file,
+        model: res.model || null, file: file, scale: res.scale || '',
         plateCm: res.plateCm, items: prepareItems(res.items), photoId: Tracker.newId()
       };
     }).catch(function (err) {
