@@ -97,6 +97,8 @@
     learnt_none: 'Nothing yet.', learnt_match: 'matched as {food}', learnt_model: 'kept as the reader’s own estimate',
     learnt_portion: 'your portions ≈ {pct}% of the reader’s guess ({n} measured)',
     forget: 'Forget', forget_all: 'Forget everything',
+    cuisines_title: 'Favourite cuisines',
+    cuisines_lede: 'The cuisines you eat most. Their foods come first in search, photos and descriptions are read with them in mind ("dal", not "lentil soup"), and their dishes get their usual spices. Shared with Food is Medicine.',
     edit_entry: 'Edit', rename: 'Rename', move_to: 'Move to', move: 'Move', name_label: 'Name',
     copy_meal: 'Copy this meal to…', copy: 'Copy', same_as_yesterday: 'Same as yesterday’s {meal}',
     copied_n: 'Copied {n} to {day}.', moved_to: 'Moved to {day}.', day_label: 'Day',
@@ -2045,6 +2047,13 @@
   // ---- dietary settings (shared with Food is Medicine) ---------------------
 
   /** The person's dietary settings, in the shape Photo.buildPrompt takes. */
+  /** Labels of the favourite cuisines, for the prompts. */
+  function cuisineNames() {
+    return (Prefs.get('cuisines') || []).map(function (c) {
+      return window.FoodsMore ? FoodsMore.cuisineLabel(c) : c;
+    });
+  }
+
   function dietOpts() {
     var p = Prefs.get();
     return {
@@ -2352,7 +2361,7 @@
     snap = { status: 'busy', dataUrl: '', hint: snap.hint, engine: engine, localStatus: null,
              only: opts.only || null, text: text, offlineRead: offlineRead };
     render();
-    var popts = { model: opts.only || undefined, diet: dietOpts() };
+    var popts = { model: opts.only || undefined, diet: dietOpts(), cuisines: cuisineNames() };
     if (engine === 'key' && !popts.model && Gemini.getPreference() !== Gemini.AUTO) popts.model = Gemini.getPreference();
     var job = engine === 'local'
       ? LocalModel.analyseText(text, popts, function (st) {
@@ -2448,7 +2457,7 @@
       if (!rec || queueBusy) return;
       queueBusy = rec.id;
       refreshQueue();
-      var opts = { hint: rec.hint || '', diet: dietOpts() };
+      var opts = { hint: rec.hint || '', diet: dietOpts(), cuisines: cuisineNames() };
       var job = rec.kind === 'text'
         ? Photo.analyseText(engine, rec.text, opts)
         : Photo.analyseWith(engine, Queue.blobOf(rec), opts);
@@ -2703,12 +2712,12 @@
     }
     render();
 
-    var popts = { hint: snap.hint, model: opts.only || undefined, diet: dietOpts() };
+    var popts = { hint: snap.hint, model: opts.only || undefined, diet: dietOpts(), cuisines: cuisineNames() };
     if (engine === 'key' && !popts.model && Gemini.getPreference() !== Gemini.AUTO) {
       popts.model = Gemini.getPreference();   // a model chosen by hand on Food is Medicine
     }
     var job = engine === 'local'
-      ? LocalModel.analyse(file, { hint: snap.hint, diet: dietOpts() }, function (s) {
+      ? LocalModel.analyse(file, { hint: snap.hint, diet: dietOpts(), cuisines: cuisineNames() }, function (s) {
           if (snap.status !== 'busy') return;
           snap.localStatus = s;
           var el = document.getElementById('snapStatus');
@@ -3004,7 +3013,7 @@
       var excluded = function (f) { return !!Prefs.excludedReason(f) || (pregnant && f.group === 'offal'); };
       body = (a.low.length ? '' : '<p>' + esc(t('gaps_none')) + '</p>') +
         a.low.map(function (g, i) {
-          var tips = Gaps.suggest(g.key, CORE_FOODS, g.target, excluded, 4);
+          var tips = Gaps.suggest(g.key, CORE_FOODS, g.target, excluded, 4, function (f) { return cuisineBoost(f) > 0; });
           var head = esc(t('gaps_low', { name: nutrientLabel(g.key), avg: amountText(g.avg, g.key),
             pct: Math.round(g.pct * 100), target: amountText(g.target, g.key) }));
           if (!tips.length) return '<div class="gap"><p><strong>' + head + '</strong></p></div>';
@@ -3199,7 +3208,27 @@
       '<p class="hint" style="margin-top:4px">' + esc(t('custom_excl_hint')) + '</p></div></div>';
   }
 
+  function cuisineCard() {
+    if (!window.FoodsMore || !FoodsMore.cuisines.length) return '';
+    var mine = Prefs.get('cuisines') || [];
+    return '<div class="card pad settings-block cuisine-card"><h2>' + esc(t('cuisines_title')) + '</h2>' +
+      '<p class="hint">' + esc(t('cuisines_lede')) + '</p>' +
+      '<div class="chips" role="group" aria-label="' + esc(t('cuisines_title')) + '">' +
+      FoodsMore.cuisines.map(function (c) {
+        return '<button class="chip" type="button" data-cuisine="' + esc(c.code) + '" aria-pressed="' +
+          (mine.indexOf(c.code) >= 0) + '">' + esc(c.label) + '</button>';
+      }).join('') + '</div></div>';
+  }
+
   function bindDietCard() {
+    main.querySelectorAll('[data-cuisine]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var list = (Prefs.get('cuisines') || []).slice(), c = b.dataset.cuisine, i = list.indexOf(c);
+        if (i >= 0) list.splice(i, 1); else list.push(c);
+        Prefs.set('cuisines', list);
+        render();
+      });
+    });
     main.querySelectorAll('[data-diet]').forEach(function (b) {
       b.addEventListener('click', function () { Prefs.set('diet', b.dataset.diet); render(); });
     });
@@ -3312,7 +3341,7 @@
         : esc(t('profile_none'))) + '</p>' +
       '<div class="btn-row"><a class="btn ghost" href="' + FIM + '#/you">' + esc(t('edit_profile')) + ' &rarr;</a></div></div>' +
 
-      dietCard() +
+      dietCard() + cuisineCard() +
       '<div class="card pad settings-block"><h2>' + esc(t('hide_kcal_title')) + '</h2>' +
       '<p class="hint">' + esc(t('hide_kcal_lede')) + '</p>' +
       '<label class="toggle-row"><input type="checkbox" id="hideKcal"' + (showKcal() ? '' : ' checked') + '> ' +

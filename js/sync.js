@@ -291,13 +291,14 @@
     return {
       profile: prof ? JSON.parse(JSON.stringify(prof)) : null,
       diet: { diet: p.diet || 'none', allergens: (p.allergens || []).slice().sort(), customExclude: p.customExclude || '' },
-      display: { hideKcal: hide }
+      display: { hideKcal: hide },
+      cuisines: (p.cuisines || []).slice().sort()
     };
   }
 
   function isEmptySettings(s) {
     return !s.profile && s.diet.diet === 'none' && !s.diet.allergens.length && !s.diet.customExclude &&
-      !(s.display && s.display.hideKcal);
+      !(s.display && s.display.hideKcal) && !(s.cuisines && s.cuisines.length);
   }
 
   function snapshot(v) {
@@ -325,6 +326,9 @@
         try { window.dispatchEvent(new Event('foodlog:display')); } catch (e) { /* no DOM (tests) */ }
       }
     }
+    if (P && r.cuisines && canon((P.get('cuisines') || []).slice().sort()) !== canon(r.cuisines)) {
+      P.set('cuisines', r.cuisines.slice());
+    }
     if (P && r.diet) {
       if (P.get('diet') !== r.diet.diet) P.set('diet', r.diet.diet);
       if (canon((P.get('allergens') || []).slice().sort()) !== canon(r.diet.allergens || [])) P.set('allergens', (r.diet.allergens || []).slice());
@@ -339,6 +343,9 @@
       return window.Prefs && window.Prefs.ALLERGENS.indexOf(a) >= 0;
     }).sort() : [];
     return {
+      cuisines: Array.isArray(doc.cuisines) ? doc.cuisines.filter(function (c) {
+        return typeof c === 'string' && /^[a-z_]{2,30}$/.test(c);
+      }).sort().slice(0, 20) : [],
       display: { hideKcal: !!(doc.display && doc.display.hideKcal) },
       profile: doc.profile && window.Profile && window.Profile.valid(doc.profile) ? doc.profile : null,
       diet: {

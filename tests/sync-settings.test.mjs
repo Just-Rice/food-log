@@ -112,5 +112,11 @@ B2.S.settingsChanged();
 await wait(2300); await tick();
 check(!A.store['foodlog.hideKcal'] && cloud.settings.display.hideKcal === false, 'switching it off on one device switches it off on the others');
 
+// 8. Favourite cuisines sync with the dietary settings.
+A.P.set('cuisines', ['indian', 'mexican']);
+await wait(2300); await tick();
+check(JSON.stringify(cloud.settings.cuisines) === '["indian","mexican"]', 'favourite cuisines are pushed');
+check(JSON.stringify(B2.P.get('cuisines').slice().sort()) === '["indian","mexican"]', 'and reach the other device');
+
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);

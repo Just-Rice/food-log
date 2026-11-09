@@ -122,6 +122,20 @@
     return out;
   }
 
+  /**
+   * The cuisines the person mostly eats (Settings), as a hint for reading
+   * dishes that could be several things, and for naming them.
+   */
+  function cuisineLines(names) {
+    names = (names || []).map(function (c) { return String(c).replace(/"/g, "'").slice(0, 40); })
+      .filter(Boolean).slice(0, 6);
+    if (!names.length) return [];
+    return ['', 'CUISINES: this person mostly eats ' + names.join(', ') + ' food. When a dish could ' +
+      'be read more than one way, prefer the reading from these cuisines, and use their usual dish ' +
+      'names (e.g. "dal" rather than "lentil soup", "sabzi" rather than "vegetable stir-fry"), ' +
+      'while still describing exactly what you see.'];
+  }
+
   // ---- prompts --------------------------------------------------------------
   // The photo and the spoken/typed description share every rule about what
   // to report and how; only the opening and the scale rules differ.
@@ -193,6 +207,7 @@
         '". Trust this over your own reading of the photo.');
     }
     Array.prototype.push.apply(lines, dietLines(opts && opts.diet));
+    Array.prototype.push.apply(lines, cuisineLines(opts && opts.cuisines));
     lines.push('');
     lines.push('Also give "plate_cm": the diameter in cm you assumed for the main plate or ' +
       'bowl when judging amounts, or 0 if there is no plate or bowl to judge by.');
@@ -228,6 +243,7 @@
     lines.push('- The words may come from speech recognition: read through obvious mishearings ' +
       '("brown rise" is brown rice), but do not invent foods they did not mention.');
     Array.prototype.push.apply(lines, dietLines(opts && opts.diet));
+    Array.prototype.push.apply(lines, cuisineLines(opts && opts.cuisines));
     lines.push('');
     lines.push('Also give "notes": one short sentence on what most limits this estimate.');
     lines.push('If they describe no food, return an empty "items" list and say so in "notes".');
@@ -379,5 +395,5 @@
     return analyseWith(window.Gemini.engine, file, opts);
   }
 
-  window.Photo = { analyse: analyse, analyseWith: analyseWith, analyseText: analyseText, prepare: prepare, parse: parse, buildPrompt: buildPrompt, buildTextPrompt: buildTextPrompt, allergenKey: allergenKey };
+  window.Photo = { cuisineLines: cuisineLines, analyse: analyse, analyseWith: analyseWith, analyseText: analyseText, prepare: prepare, parse: parse, buildPrompt: buildPrompt, buildTextPrompt: buildTextPrompt, allergenKey: allergenKey };
 })();

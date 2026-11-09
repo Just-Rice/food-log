@@ -116,7 +116,7 @@
    * the dietary-settings test; excluded foods are never suggested.
    * Returns [{food, grams, label, amount, pct}].
    */
-  function suggest(key, foods, target, excluded, limit) {
+  function suggest(key, foods, target, excluded, limit, prefer) {
     var seen = {};
     return foods.map(function (f) {
       if (excluded && excluded(f)) return null;
@@ -142,7 +142,8 @@
       // Rank by what a portion gives, credited up to a full day's worth --
       // beyond that more is no better -- and lean towards everyday foods:
       // those people know by other names (Food is Medicine's aliases).
-      var score = Math.min(pct, 1) + 0.15 * familiarity(f);
+      // `prefer(f)`: from a favourite cuisine -- lentils and chana before squab.
+      var score = Math.min(pct, 1) + 0.15 * familiarity(f) + (prefer && prefer(f) ? 0.3 : 0);
       return { food: f, grams: grams, label: grams === portion.grams ? portionLabel(portion.label) : grams + ' g',
                amount: amount, pct: pct, score: score };
     }).filter(Boolean).sort(function (a, b) { return b.score - a.score || b.amount - a.amount; }).filter(function (s) {
