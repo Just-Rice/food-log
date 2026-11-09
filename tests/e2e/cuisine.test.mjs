@@ -45,6 +45,16 @@ await runSuite('cuisine', async ({ base: BASE, browser: b, check }) => {
   check(hits.some((h) => /coq au vin/i.test(h.name)), 'coq au vin');
   hits = await search('banana');
   check(hits[0].slug === 'banana', 'a curated food still comes first for a plain search');
+  // Spices by the names Indian kitchens use, and plain searches that open on
+  // the food meant rather than a longer word or a name that starts with it.
+  for (const [q, slug] of [['hing', 'uk-13-803'], ['rai', 'mustardseed'], ['saunf', 'fennelseed'], ['kesar', 'saffron'],
+    ['tej patta', 'bayleaf'], ['kadi patta', 'uk-13-821'], ['jeera', 'cumin'], ['haldi', 'turmericroot'],
+    ['dal', 'fn-41305050'], ['apple', 'apple']]) {
+    hits = await search(q);
+    check(hits.length && hits[0].slug === slug, '"' + q + '" opens on ' + slug + ': ' + (hits[0] || {}).name);
+  }
+  hits = await search('rice');
+  check(/rice, cooked/i.test(hits[0].name) && !/noodle/i.test(hits[0].name), '"rice" opens on cooked rice: ' + hits[0].name);
 
   // ---- favourite cuisines ----
   const favCount = (list) => p.evaluate((slugs) => slugs.filter((slug) => {

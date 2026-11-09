@@ -454,6 +454,10 @@
     var cooked = (f.tags || []).indexOf('cooked') >= 0;
     if (cooked || (f.tags || []).indexOf('bread') >= 0) r += 12;
     if (NOT_EATEN_AS_IS.test(name)) r -= 15;
+    // A food's own other name, typed in full ("rai" for mustard seeds, "hing"
+    // for asafoetida), beats a name that merely contains it (rainbow trout,
+    // pork scratchings), though not a food called exactly that.
+    if ((f.aka || []).some(function (a) { return a.toLowerCase() === q; })) r += 15;
     // One word: a cooked food about that word ("White rice, cooked" for
     // "rice") comes before one that only starts with it ("Rice noodles,
     // cooked"), and the word itself before a longer word ("Eggplant" for
@@ -471,8 +475,9 @@
   /**
    * Relevance, plus: every word of a several-word search found whole in the
    * name ("tikka masala chicken" finds "Curry, chicken tikka masala"); the
-   * curated foods ahead of the extended list when otherwise equal; restaurant
-   * chain items behind; and a favourite cuisine ahead.
+   * curated foods (and a food called exactly what was typed) ahead of the
+   * extended list when otherwise equal; restaurant chain items behind; and a
+   * favourite cuisine ahead.
    */
   function baseRank(f, q, words) {
     var r = relevance(f, q), name = f.name.toLowerCase();
@@ -481,7 +486,7 @@
         if (new RegExp('(^|[^a-z])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z]|$)').test(name)) r += 6;
       });
     }
-    if (!f.more) r += 8;
+    if (!f.more || name === q) r += 8;
     else if (f.kind === 'fast' && /^[A-Z'&.\s]{3,},/.test(f.name)) r -= 6;
     return r + cuisineBoost(f);
   }
@@ -3723,7 +3728,7 @@
   }
 
   // For the matcher regression tests (tests/match.test.mjs). Read-only.
-  window.FoodLogInternals = { prepareItems: prepareItems, mainName: mainName, headWord: headWord };
+  window.FoodLogInternals = { prepareItems: prepareItems, mainName: mainName, headWord: headWord, searchFoods: searchFoods };
 
   if (!FOODS.length || !DRI) {
     main.innerHTML = '<div class="note danger" style="margin-top:24px"><p>' + esc(t('no_data')) + '</p></div>';
