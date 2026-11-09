@@ -89,7 +89,10 @@
     if (diet === 'pescatarian') {
       // Fish and shellfish are fine; other animal flesh is not.
       var flesh = ['meat', 'poultry', 'offal'];
-      if (flesh.indexOf(food.group) >= 0 || (food.group === 'fat' && food.diet.length === 0)) {
+      var d = food.diet || [];
+      // The extended list's dishes say outright whether they are pescatarian.
+      if (food.more ? (d.indexOf('pescatarian') < 0 && d.indexOf('vegetarian') < 0)
+                    : (flesh.indexOf(food.group) >= 0 || (food.group === 'fat' && d.length === 0))) {
         return { reason: 'diet', detail: diet };
       }
     } else if (DIET_REQUIRES[diet]) {
@@ -105,7 +108,8 @@
     }
 
     var terms = customTerms();
-    var haystack = (food.name + ' ' + (food.usda || '')).toLowerCase();
+    var haystack = (food.name + ' ' + (food.usda || '') + ' ' + (food.aka || []).join(' ') + ' ' +
+                    (food.tags || []).join(' ')).toLowerCase();
     for (var j = 0; j < terms.length; j++) {
       if (haystack.indexOf(terms[j]) >= 0) {
         return { reason: 'custom', detail: terms[j] };

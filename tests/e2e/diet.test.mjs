@@ -79,7 +79,12 @@ await runSuite('diet', async ({ base: BASE, browser: b, check }) => {
     name: l.querySelector('.p-name').textContent, sel: l.querySelector('select').selectedOptions[0].textContent,
     opts: [...l.querySelectorAll('select option')].map(o => o.textContent) })));
   check(/not vegetarian: contains chicken/.test(rows[0].name) && /No match/.test(rows[0].sel), 'conflict item: tagged and keeps the model estimate');
-  check(!rows[0].opts.some(o => /chicken/i.test(o) && !/egg|No match/i.test(o)), 'conflict item: no chicken meat among the candidates: ' + rows[0].opts.join(' | '));
+  // "Chicken, meatless" (a soy product) is fine for a vegetarian; chicken is not.
+  const meaty = await p.evaluate((opts) => opts.filter((o) => {
+    const f = window.FOODS.find((x) => o.indexOf(x.name + ' —') === 0);
+    return f && (f.diet || []).indexOf('vegetarian') < 0;
+  }), rows[0].opts);
+  check(meaty.length === 0, 'conflict item: nothing non-vegetarian among the candidates: ' + rows[0].opts.join(' | '));
   check(/may contain peanuts/.test(rows[1].name), 'satay: "may contain peanuts" tag');
   check(/White rice, cooked/.test(rows[2].sel) && !/may contain|not vegetarian/.test(rows[2].name), 'rice: matched, no tags');
   check(/cannot tell whether a meal is safe for an allergy/.test(await p.textContent('.photo-card')), 'allergy disclaimer shown');

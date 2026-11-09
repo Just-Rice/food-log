@@ -23,6 +23,29 @@
 
   var FOOD_BY_SLUG = {};
   FOODS.forEach(function (f) { FOOD_BY_SLUG[f.slug] = f; });
+  // The curated list alone (with photos), for suggestions; FOODS grows when
+  // the extended list arrives (data/more.js).
+  var CORE_FOODS = FOODS.slice();
+
+  /** Add the extended list to search and lookups, once it has loaded. */
+  function mergeMore(list) {
+    var added = 0;
+    list.forEach(function (f) {
+      if (FOOD_BY_SLUG[f.slug]) return;
+      FOOD_BY_SLUG[f.slug] = f;
+      FOODS.push(f);
+      added++;
+    });
+    if (!added) return;
+    // Refresh a search box that is open, without redrawing the page under the cursor.
+    ['logSearch', 'recSearch'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && el.value.trim()) el.dispatchEvent(new Event('input'));
+    });
+    document.querySelectorAll('[data-psearch]').forEach(function (el) {
+      if (el.value.trim()) el.dispatchEvent(new Event('input'));
+    });
+  }
 
   // ---- strings -------------------------------------------------------------
   // English only. Food is Medicine's translations cover its own pages; this
@@ -419,11 +442,65 @@
   // In a log, someone typing "rice" has just eaten some: cooked and
   // ready-to-eat foods come before rice flour, rice bran oil and dry grain.
   var NOT_EATEN_AS_IS = /\b(flour|oil|meal|bran|powder|frozen|dry|dried|defatted|lecithin|seasoning|mix)\b/;
-  function logRank(f, q) {
-    var r = relevance(f, q);
+  function logRank(f, q, words) {
+    var r = baseRank(f, q, words);
     if ((f.tags || []).indexOf('cooked') >= 0 || (f.tags || []).indexOf('bread') >= 0) r += 12;
     if (NOT_EATEN_AS_IS.test(f.name.toLowerCase())) r -= 15;
     return r;
+  }
+
+  /**
+   * Relevance, plus: every word of a several-word search found whole in the
+   * name ("tikka masala chicken" finds "Curry, chicken tikka masala"); the
+   * curated foods ahead of the extended list when otherwise equal; restaurant
+   * chain items behind; and a favourite cuisine ahead.
+   */
+  function baseRank(f, q, words) {
+    var r = relevance(f, q), name = f.name.toLowerCase();
+    if (words && words.length > 1) {
+      words.forEach(function (w) {
+        if (new RegExp('(^|[^a-z])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z]|$)').test(name)) r += 6;
+      });
+    }
+    if (!f.more) r += 8;
+    else if (f.kind === 'fast' && /^[A-Z'&.\s]{3,},/.test(f.name)) r -= 6;
+    return r + cuisineBoost(f);
+  }
+
+  /** Favourite cuisines (Settings) move their foods up a little. */
+  function cuisineBoost(f) {
+    var mine = Prefs.get('cuisines') || [];
+    if (!mine.length || !f.cuisines || !f.cuisines.length) return 0;
+    for (var i = 0; i < f.cuisines.length; i++) if (mine.indexOf(f.cuisines[i]) >= 0) return 10;
+    return 0;
+  }
+
+  /**
+   * Foods for a search box: every word must be in what a food can be found
+   * by, the dietary settings must allow it, and each hit is ranked once.
+   * `rank(f, q, words)` defaults to the log's order.
+   */
+  function searchFoods(query, limit, rank) {
+    var q = String(query || '').trim().toLowerCase();
+    if (!q) return [];
+    var words = q.split(/\s+/).filter(Boolean);
+    rank = rank || logRank;
+    var hits = [];
+    for (var i = 0; i < FOODS.length; i++) {
+      var f = FOODS[i], h = haystack(f), ok = true;
+      for (var j = 0; j < words.length; j++) if (h.indexOf(words[j]) < 0) { ok = false; break; }
+      if (!ok || Prefs.excludedReason(f)) continue;
+      hits.push({ f: f, r: rank(f, q, words) });
+    }
+    hits.sort(function (a, b) {
+      return b.r - a.r || a.f.name.length - b.f.name.length || a.f.name.localeCompare(b.f.name);
+    });
+    return hits.slice(0, limit || 10).map(function (h) { return h.f; });
+  }
+
+  /** " · 130 kcal/100 g" for a suggestion, or nothing (calories hidden, or no figure). */
+  function kcalHint(f) {
+    return f.nutrients.kcal != null ? kc('<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span>') : '';
   }
 
   function supportNote() {
@@ -924,12 +1001,10 @@
       if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
       // Ingredients are often dry or raw -- flour, lentils, oil -- so plain
       // relevance order, not the log's cooked-first order.
-      var hits = FOODS.filter(function (f) { return !Prefs.excludedReason(f) && haystack(f).indexOf(q) >= 0; })
-        .sort(function (a, b) { return relevance(b, q) - relevance(a, q) || a.name.length - b.name.length; }).slice(0, 10);
+      var hits = searchFoods(q, 10, baseRank);
       box.hidden = !hits.length;
       box.innerHTML = hits.map(function (f) {
-        return '<button type="button" data-ing-add="' + esc(f.slug) + '">' + esc(f.name) +
-          kc('<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span>') + '</button>';
+        return '<button type="button" data-ing-add="' + esc(f.slug) + '">' + esc(f.name) + kcalHint(f) + '</button>';
       }).join('');
       box.querySelectorAll('[data-ing-add]').forEach(function (b) {
         b.addEventListener('click', function () {
@@ -1524,17 +1599,10 @@
     search.addEventListener('input', function () {
       var q = search.value.trim().toLowerCase();
       if (!q) { suggest.hidden = true; suggest.innerHTML = ''; return; }
-      var hits = FOODS
-        .filter(function (f) { return !Prefs.excludedReason(f) && haystack(f).indexOf(q) >= 0; })
-        .sort(function (a, b) {
-          var d = logRank(b, q) - logRank(a, q);
-          return d !== 0 ? d : a.name.length - b.name.length || a.name.localeCompare(b.name);
-        })
-        .slice(0, 10);
+      var hits = searchFoods(q, 10);
       suggest.hidden = !hits.length;
       suggest.innerHTML = hits.map(function (f) {
-        return '<button type="button" data-pick="' + esc(f.slug) + '">' + esc(f.name) +
-          kc('<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span>') + '</button>';
+        return '<button type="button" data-pick="' + esc(f.slug) + '">' + esc(f.name) + kcalHint(f) + '</button>';
       }).join('');
       suggest.querySelectorAll('[data-pick]').forEach(function (b) {
         b.addEventListener('click', function () {
@@ -2658,13 +2726,10 @@
       inp.addEventListener('input', function () {
         var q = inp.value.trim().toLowerCase();
         if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
-        var hits = FOODS.filter(function (f) { return !Prefs.excludedReason(f) && haystack(f).indexOf(q) >= 0; })
-          .sort(function (a, b) { return logRank(b, q) - logRank(a, q) || a.name.length - b.name.length; })
-          .slice(0, 8);
+        var hits = searchFoods(q, 8);
         box.hidden = !hits.length;
         box.innerHTML = hits.map(function (f) {
-          return '<button type="button" data-pset="' + esc(f.slug) + '">' + esc(f.name) +
-            kc('<span class="dim"> · ' + fmt(f.nutrients.kcal) + ' kcal/100 g</span>') + '</button>';
+          return '<button type="button" data-pset="' + esc(f.slug) + '">' + esc(f.name) + kcalHint(f) + '</button>';
         }).join('');
         box.querySelectorAll('[data-pset]').forEach(function (b) {
           b.addEventListener('click', function () {
@@ -2867,7 +2932,7 @@
       var excluded = function (f) { return !!Prefs.excludedReason(f) || (pregnant && f.group === 'offal'); };
       body = (a.low.length ? '' : '<p>' + esc(t('gaps_none')) + '</p>') +
         a.low.map(function (g, i) {
-          var tips = Gaps.suggest(g.key, FOODS, g.target, excluded, 4);
+          var tips = Gaps.suggest(g.key, CORE_FOODS, g.target, excluded, 4);
           var head = esc(t('gaps_low', { name: nutrientLabel(g.key), avg: amountText(g.avg, g.key),
             pct: Math.round(g.pct * 100), target: amountText(g.target, g.key) }));
           if (!tips.length) return '<div class="gap"><p><strong>' + head + '</strong></p></div>';
@@ -3356,4 +3421,9 @@
     if (ev.key === 'fim.profile.v1' || ev.key === 'fim.prefs.v1') location.reload();
   });
   onHash();
+  // The extended food list (about a megabyte) loads after the first page is
+  // drawn, so it never delays it; search covers it from then on.
+  if (window.FoodsMore) {
+    setTimeout(function () { FoodsMore.load().then(mergeMore, function () { /* curated list only */ }); }, 300);
+  }
 })();

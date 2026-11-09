@@ -52,8 +52,10 @@ await runSuite('meals', async ({ base: BASE, browser: b, check }) => {
   const chips = await p.$$eval('[data-lib-meal], [data-lib-recipe]', bs => bs.map(x => x.textContent));
   check(chips.some(c => /Usual breakfast/.test(c)) && chips.some(c => /Weeknight dal/.test(c)), 'My meals chips show the meal and the recipe');
   const before = await p.evaluate(() => window.Tracker.day(window.Tracker.today()).length);
+  // Breakfast also holds the recipe serving when the test runs before 11:00.
+  const n = await p.evaluate(() => window.Library.meals().find((m) => m.name === 'Usual breakfast').items.length);
   await p.click('[data-lib-meal]');
-  check(await p.evaluate(() => window.Tracker.day(window.Tracker.today()).length) === before + 2, 'meal chip logs both items');
+  check(await p.evaluate(() => window.Tracker.day(window.Tracker.today()).length) === before + n && n >= 2, 'meal chip logs every item (' + n + ')');
 
   // Delete.
   p.on('dialog', d => d.accept());
