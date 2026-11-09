@@ -71,7 +71,10 @@ var SHELL = [
   'icons/apple-touch-icon.png',
   '../food-is-medicine/data/foods.js',
   '../food-is-medicine/data/images.js',
-  '../food-is-medicine/data/dri.js'
+  '../food-is-medicine/data/dri.js',
+  // The extended food list is added by data/more.js after the first render,
+  // often before this worker controls the page, so it is fetched here too.
+  '../food-is-medicine/data/foods-more.js'
 ];
 
 function abs(path) { return new URL(path, SCOPE).href; }

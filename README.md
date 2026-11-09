@@ -1,7 +1,7 @@
 # Food Log
 
 A food diary built on [Food is Medicine](https://just-rice.github.io/food-is-medicine/)'s
-USDA food library. Log meals by search or by photo, measure portions to turn guesses into
+food library: USDA's tables and the UK's, about 14,600 foods and dishes. Log meals by search or by photo, measure portions to turn guesses into
 real amounts, and see each day against your own vitamin and mineral reference intakes.
 Scan packaged foods, save meals and recipes, describe a meal in words, install it as an app,
 and print a report for a doctor or dietitian.
@@ -10,11 +10,37 @@ and print a report for a doctor or dietitian.
 
 ## What it does
 
-**Log by search** — 1,071 foods, searchable by every name Food is Medicine knows (*rajma*,
-*bhindi*, *chawal*, *anda*). Cooked and ready-to-eat foods come first, because someone
-typing "rice" into a food log has just eaten some, not a bag of dry grain. Pick a USDA
-household portion ("1 piece", "1 cup") or type grams, and re-add recent foods in one tap.
-Packaged foods can be typed in from their label.
+**Log by search** — about 14,600 foods. Food is Medicine's 1,080 curated foods come with the
+page; the rest load in the background a moment later and are kept on the device for offline
+use. These are the rest of USDA's SR Legacy and Foundation Foods, USDA's survey table of
+foods as eaten (FNDDS) and the UK's food composition table (CoFID). Dishes are there as
+dishes — *chicken tikka masala*, *coq au vin*, *bibimbap*, *masala dosa*, *pad thai* — and
+foods can be found by the names people use (*chana masala*, *rajma*, *bhindi*, *chawal*,
+*anda*). Cooked and ready-to-eat foods come first, because someone typing "rice" into a food
+log has just eaten some, not a bag of dry grain; the curated foods come before the rest when
+otherwise equal. Pick a household portion ("1 piece", "1 cup") or type grams, and re-add
+recent foods in one tap. Packaged foods can be typed in from their label.
+
+**Favourite cuisines** — pick the cuisines you mostly eat in Settings (16 of them, from Indian
+& South Asian, Chinese, Japanese, Korean and Southeast Asian to Mexican & Latin American,
+Mediterranean, Middle Eastern, French and the rest of Europe). Their foods move up in search
+and in the week's suggestions, break ties when a photo item is matched, and the photo reader
+is told, so a bowl that could be lentil soup or dal is read as dal. The choice is shared with
+Food is Medicine and syncs with your other settings.
+
+**A dish's spices** — log a dish, from a photo, a description or search, and its usual spices
+come with it, unless that day's log already has them: dal brings turmeric, cumin and
+asafoetida, and jeera rice adds no second cumin. The amounts are small and typical: USDA's
+survey dishes list their spices in grams, the photo reader names the ones it expects, and
+the rest come from a template per dish (`build/dish_spices.txt` in Food is Medicine). The
+review screen shows them ("with turmeric, cumin, asafoetida") and each dish can drop them. On
+Today they fold under the dish ("+ 2 spices"), open to a list, and are deleted, moved and
+copied with it; a saved meal brings its spices the same way. Settings can switch this off.
+The food list now has the spices USDA lacks: asafoetida (hing), ajwain, amchur, kalonji,
+curry leaves, kasuri methi, star anise, sumac, Sichuan pepper, gochugaru and others, plus
+blends such as garam masala, chaat masala, panch phoron, five-spice, za'atar and ras el
+hanout, worked out from their parts. A spice that no open table measures is listed without
+nutrient figures rather than with invented ones; it still counts as a plant.
 
 **Scan a barcode** — the camera reads EAN-13, EAN-8 and UPC codes (the browser's own
 `BarcodeDetector` where it has one, the `barcode-detector` library on iPhone), or type the
@@ -38,8 +64,10 @@ made of USDA foods, so a logged portion carries every vitamin and mineral, not j
 each food it can see and estimates how much, as a range. The calories are *not* the
 model's when a food matches: each item is matched to a USDA record — cooked rice to cooked
 rice, not to dry rice at nearly three times the energy — and worked out from those figures.
-Mixed dishes (a curry, a burger, sushi, a soup) keep the model's own estimate, because no
-single ingredient record describes them. Nothing is logged until you have checked it, and
+Mixed dishes (a curry, a burger, sushi, a soup) are matched only to a record of that dish —
+USDA's survey table and the UK's have thousands, from chicken curry to salmon nigiri — when
+the name and the energy per 100 g agree; otherwise they keep the model's own estimate,
+because no single ingredient record describes them. Nothing is logged until you have checked it, and
 any item can be re-matched by searching the food list.
 
 **It learns your portions.** Change a match on the review screen ("curry" → cooked lentils)
@@ -146,6 +174,10 @@ shows no energy figure, and leaves liver out of its suggestions in pregnancy. In
 the limit applies only to supplements and fortified foods, since food alone has not been
 shown to cause harm at those intakes. Typed-in foods and unmatched photo items carry energy
 only; the panel says how much of the day that leaves uncounted rather than treating it as zero.
+Not every table measures everything — USDA's survey dishes have no manganese or pantothenic
+acid figures, and the UK's table no choline — so a nutrient that some of the day's foods do
+not list is marked and the foods are named, and the week's summary never calls a nutrient
+low when more than 30% of the week's energy came from foods that do not list it.
 
 **History** — 7- and 30-day energy charts, every logged day with its totals, and the logged
 days' average against your reference intakes.
@@ -160,7 +192,8 @@ part of the week uncounted.
 
 **Plants this week** — how many different plant foods the week's log holds (vegetables,
 fruit, pulses, grains, nuts, seeds, herbs, spices and mushrooms, each once however it was
-cooked, recipes counted by their ingredients), shown without a target.
+cooked, recipes and USDA's survey dishes counted by their ingredients), shown without a
+target.
 
 **Report** — a printable summary of 7, 14 or 30 days for an appointment: days logged,
 averages, the energy chart, vitamins and minerals against your reference intakes, how much
@@ -225,15 +258,18 @@ on every page that touches intake.
 
 The two sites live on the same origin (`just-rice.github.io`), and Food Log uses that:
 
-- `index.html` loads `data/foods.js`, `data/images.js` and `data/dri.js` from
-  `../food-is-medicine/`, so there is one copy of the food data, and photographs come from
-  its `img/` folder. Cooked foods without a photo of their own borrow the raw food's where
+- `index.html` loads `data/foods.js`, `data/images.js`, `data/dri.js`, `data/cuisines.js`
+  and `data/more.js` from `../food-is-medicine/`, so there is one copy of the food data, and
+  photographs come from its `img/` folder. `more.js` fetches the extended list,
+  `data/foods-more.js` (3.7 MB, about 1 MB compressed), once the page is up, and the service
+  worker keeps it for offline use. The CoFID figures are © Crown copyright, used under the
+  Open Government Licence v3.0; Food is Medicine's sources page has the details. Cooked foods without a photo of their own borrow the raw food's where
   that is a fair picture of the plate (`PHOTO_FALLBACK` in `js/app.js`).
 - Your profile (`fim.profile.v1`), dietary settings (`fim.prefs.v1`) and Gemini key
   (`fim.gemini.key`) are read from the same browser storage Food is Medicine writes, so they
   carry over. Dietary settings can be edited in either; the profile is edited there.
 - The log itself is `foodlog.log.v1`; saved meals and recipes `foodlog.library.v1`;
-  scanned products `foodlog.products.v1`.
+  scanned products `foodlog.products.v1`. Favourite cuisines are part of `fim.prefs.v1`.
 
 ## Privacy
 

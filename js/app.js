@@ -450,9 +450,21 @@
   // ready-to-eat foods come before rice flour, rice bran oil and dry grain.
   var NOT_EATEN_AS_IS = /\b(flour|oil|meal|bran|powder|frozen|dry|dried|defatted|lecithin|seasoning|mix)\b/;
   function logRank(f, q, words) {
-    var r = baseRank(f, q, words);
-    if ((f.tags || []).indexOf('cooked') >= 0 || (f.tags || []).indexOf('bread') >= 0) r += 12;
-    if (NOT_EATEN_AS_IS.test(f.name.toLowerCase())) r -= 15;
+    var r = baseRank(f, q, words), name = f.name.toLowerCase();
+    var cooked = (f.tags || []).indexOf('cooked') >= 0;
+    if (cooked || (f.tags || []).indexOf('bread') >= 0) r += 12;
+    if (NOT_EATEN_AS_IS.test(name)) r -= 15;
+    // One word: a cooked food about that word ("White rice, cooked" for
+    // "rice") comes before one that only starts with it ("Rice noodles,
+    // cooked"), and the word itself before a longer word ("Eggplant" for
+    // "egg"), and a plural a little ("Apples, sulfured" for "apple").
+    if (words && words.length === 1) {
+      if (name.indexOf(q) === 0 && /[a-z]/.test(name.charAt(q.length))) {
+        r -= /^(e?s)([^a-z]|$)/.test(name.slice(q.length)) ? 3 : 10;
+      }
+      else if (cooked && name.indexOf(q) !== 0 && headWord(f.name) === q &&
+               (' ' + mainName(f.name) + ' ').indexOf(' ' + q + ' ') >= 0) r += 12;
+    }
     return r;
   }
 
@@ -3684,6 +3696,19 @@
       logState.pickGrams = route.grams > 0 && route.grams <= 5000 ? route.grams : null;
       history.replaceState(null, '', '#/today');
       route.add = null;
+    } else if (route.add && /^(sr|fd|fn|uk|sp)-/.test(route.add) && window.FoodsMore) {
+      // A food from the extended list ("Log this" on its Food is Medicine
+      // page): open it once the list has loaded.
+      var want = route.add, grams = route.grams;
+      route.add = null;
+      history.replaceState(null, '', '#/today');
+      FoodsMore.load().then(function (l) {
+        mergeMore(l);
+        if (!FOOD_BY_SLUG[want] || route.name !== 'today') return;
+        logState.pick = want;
+        logState.pickGrams = grams > 0 && grams <= 5000 ? grams : null;
+        render();
+      }, function () { /* the curated list only */ });
     }
     if (route.shared) { var sid = route.shared; route.shared = null; history.replaceState(null, '', '#/snap'); handleShared(sid); }
     render();

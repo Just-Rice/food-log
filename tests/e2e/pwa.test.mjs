@@ -133,7 +133,8 @@ try {
   const flat = Object.values(cached).flat();
   check(Object.keys(cached).every((n) => n.startsWith('food-log-')), 'caches: ' + Object.keys(cached).join(', '));
   for (const f of ['food-log/', 'food-log/index.html', 'food-log/css/style.css', 'food-log/js/app.js', 'food-log/js/pwa.js',
-    'food-log/js/local-worker.js', 'food-is-medicine/data/foods.js', 'food-is-medicine/data/images.js', 'food-is-medicine/data/dri.js']) {
+    'food-log/js/local-worker.js', 'food-is-medicine/data/foods.js', 'food-is-medicine/data/images.js', 'food-is-medicine/data/dri.js',
+    'food-is-medicine/data/foods-more.js']) {
     check(flat.includes(ORIGIN + '/' + f), 'precached ' + f);
   }
   const scripts = await page.evaluate(() => [...document.scripts].map((s) => s.src).filter(Boolean));
