@@ -29,7 +29,15 @@ const FORBIDDEN = [
   [/curry/i, /powder/],
   [/fried bread|puri/i, /^egg/],
   [/\btea\b/i, /epazote/],
-  [/^burger$/i, /groundbeef/]
+  [/^burger$/i, /groundbeef/],
+  // With the extended list: a dish that adds a meat the item never named.
+  [/vegetable biryani/i, /^(uk-19-454|fn-58146)/],
+  [/malai kofta/i, /^uk-19-594$/],
+  [/fried egg/i, /^fn-75412010$/],
+  [/tea with milk/i, /kombucha|hibiscus/],
+  [/black pudding/i, /^uk-11-11/],
+  [/salmon nigiri/i, /^uk-16-362$/],
+  [/cooking oil/i, /cocoa/]
 ];
 // name pattern -> slug that SHOULD still be matched (when the item appears)
 const EXPECTED = [
@@ -38,7 +46,8 @@ const EXPECTED = [
   [/^fried egg$/i, /^eggfried$/],
   [/^spaghetti, cooked$/i, /^pastacooked$/],
   [/^plain yogurt|^white yogurt|^raita/i, /yogurt|yoghurt/],
-  [/lentils, cooked|^dal\b/i, /lentilscooked|toordalcooked/]
+  // A dal dish (FNDDS "Dal", lentils with ghee) is as right as plain cooked lentils.
+  [/lentils, cooked|^dal\b/i, /lentilscooked|toordalcooked|^fn-41305050$/]
 ];
 
 const server = await startServer();
@@ -48,6 +57,9 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.goto(base);
 await page.waitForFunction(() => window.FoodLogInternals);
+// Match against the whole list: the curated foods and the extended one
+// (dishes, drinks, more cuts) that loads after the first page is drawn.
+await page.waitForFunction(() => window.FoodsMore && window.FoodsMore.loaded() && window.FOODS.length > 10000, null, { timeout: 30000 });
 
 // Single items seen in live runs after the corpus was recorded.
 corpus.push({ model: 'live (Nov 2026)', photo: 'thali, vegetarian settings', text: JSON.stringify({ items: [
@@ -60,11 +72,14 @@ let checked = 0;
 for (const r of corpus) {
   const rows = await page.evaluate((text) => {
     const parsed = window.Photo.parse(text);
-    return window.FoodLogInternals.prepareItems(parsed.items).map((it) => ({ name: it.name, slug: it.slug }));
+    return window.FoodLogInternals.prepareItems(parsed.items).map((it) => {
+      const f = it.slug && window.FOODS.find((x) => x.slug === it.slug);
+      return { name: it.name, slug: it.slug, label: f ? f.name + ' (' + Math.round(f.nutrients.kcal) + ')' : '' };
+    });
   }, r.text);
   console.log(`\n${r.model} · ${r.photo}`);
   for (const row of rows) {
-    console.log(`  ${row.name.padEnd(44)} -> ${row.slug || '(model estimate)'}`);
+    console.log(`  ${row.name.padEnd(44)} -> ${row.slug ? row.slug + '  ' + row.label : '(model estimate)'}`);
     for (const [n, s] of FORBIDDEN) {
       if (n.test(row.name) && row.slug && s.test(row.slug)) failures.push(`${r.model} ${r.photo}: "${row.name}" matched ${row.slug}`);
     }

@@ -69,6 +69,11 @@
     VITAMINS.concat(MINERALS).forEach(function (k) {
       var target = targets[k];
       if (!target) return;
+      // Not when foods whose source does not list it are much of the week:
+      // the average would read low for want of data, not of the nutrient.
+      var unknown = 0;
+      logged.forEach(function (d) { unknown += (d.unknown && d.unknown[k]) || 0; });
+      if (kcal && unknown / kcal > 0.3) return;
       var sum = 0;
       logged.forEach(function (d) { sum += d[k] || 0; });
       var avg = sum / logged.length;
@@ -171,8 +176,12 @@
     }
     entries.forEach(function (e) {
       if (e.source === 'supplement') return;
-      if (e.slug) add(bySlug[e.slug]);
-      else if (e.slugs && e.slugs.length) e.slugs.forEach(function (s) { add(bySlug[s]); });
+      var f = e.slug && bySlug[e.slug];
+      if (f) {
+        add(f);
+        // A dish from USDA's survey table lists the plants in it.
+        (f.parts || []).forEach(function (s) { add(bySlug[s]); });
+      } else if (e.slugs && e.slugs.length) e.slugs.forEach(function (s) { add(bySlug[s]); });
       else unknown++;
     });
     kinds.sort(function (a, b) { return a.name.localeCompare(b.name); });

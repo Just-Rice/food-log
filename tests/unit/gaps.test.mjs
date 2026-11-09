@@ -77,5 +77,12 @@ const pv = G.plants([{ slug: 'spinachcooked' }, { slug: 'ricewhitecooked' }, { s
   { source: 'recipe', slugs: ['lentilscooked', 'banana'] }, { name: 'Takeaway', fixed: { kcal: 500 } }, { source: 'supplement', amounts: {} }], bySlug);
 check(pv.count === 4 && pv.unknown === 1, 'plants: spinach, rice, lentils, banana (yogurt is not a plant; lentils once): ' + pv.kinds.map((k) => k.kind).join(', '));
 
+// A dish counts the plants in it (FNDDS ingredient lists).
+const bySlug2 = Object.assign({}, bySlug, { 'fn-1': { slug: 'fn-1', name: 'Palak paneer', group: 'dish', parts: ['spinachcooked', 'banana'] } });
+check(G.plants([{ slug: 'fn-1' }], bySlug2).count === 2, 'a dish counts its plant ingredients');
+// A nutrient most of the week's food has no figure for is not called low.
+const unk = [day({ iron: 2, unknown: { iron: 1500 } }), day({ iron: 2, unknown: { iron: 1500 } }), day({ iron: 2, unknown: { iron: 1500 } })];
+check(!G.analyse(unk, targets, uls).low.some((l) => l.key === 'iron'), 'low iron is not claimed when most of the energy has no iron figure');
+
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);

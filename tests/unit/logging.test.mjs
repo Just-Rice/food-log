@@ -162,5 +162,19 @@ const D1 = '2026-11-06', D2 = '2026-11-07';
   check(/,Supplement,/.test(row) && /,14,/.test(row), 'CSV: source "Supplement" and its iron');
 }
 
+// ---- nutrients a source does not list ----
+{
+  const A = device();
+  const dish = { slug: 'fn-1', name: 'Chicken curry', nutrients: { kcal: 110, protein: 9, iron: 1, vitc: 3, calcium: 20 } };
+  A.T.add(D1, { food: dish, grams: 300, meal: 'dinner' });
+  A.T.add(D1, { food: food('rice', 130, { manganese: 0.4 }), grams: 200, meal: 'dinner' });
+  const t = A.T.totals(D1);
+  check(t.partialCount === 0, 'a dish with the full profile but a few gaps is not "missing vitamin data"');
+  check(Math.round(t.unknown.manganese) === 330 && t.unknownCount.manganese === 1 && !t.unknown.iron,
+    'unknown: energy from entries whose source does not list a nutrient (manganese: the 330 kcal curry)');
+  const sp = A.T.add(D1, { food: { slug: 'sp-ajwain', name: 'Ajwain', nodata: true, nutrients: {} }, grams: 2, meal: 'dinner' });
+  check(sp.nodata && A.T.isComplete(sp) && A.T.totals(D1).partialCount === 0, 'a pinch of a spice with no figures leaves nothing uncounted');
+}
+
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);

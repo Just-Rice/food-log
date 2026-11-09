@@ -180,6 +180,8 @@
     stage_pregnant: 'pregnant', stage_breastfeeding: 'breastfeeding',
     gaps_pregnant: 'Liver is left out of these suggestions during pregnancy because of its vitamin A.',
     nutrients_lede_generic: 'The day against the general Daily Values printed on US food labels. Set up a profile for your own.',
+    unlisted_title: 'Not listed for some of the foods logged',
+    unlisted_note: '* Not listed for some of the foods logged, so it may read low: {list}. Some tables do not measure everything — USDA’s survey dishes have no manganese or pantothenic acid figures, and the UK table no choline.',
     nutrients_partial_one: '1 entry ({kcal} kcal) has no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so its vitamins and minerals are not counted here.',
     nutrients_partial_one_nokcal: '1 entry has no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so its vitamins and minerals are not counted here.',
     nutrients_partial_nokcal: '{n} entries have no vitamin and mineral data (typed in, from a packet label, or a photo item with no USDA match), so their vitamins and minerals are not counted here.',
@@ -1318,6 +1320,11 @@
   function nutrientPanel(totals, ref, prof, divisor, title) {
     divisor = divisor || 1;
     var uls = DRI.upperLimitsFor(prof ? prof.age : 30);
+    // Nutrients some logged foods' sources do not list, when those foods are
+    // a real share of the energy: the figure may read low.
+    var unlisted = Object.keys(totals.unknown || {}).filter(function (k) {
+      return totals.kcal > 0 && totals.unknown[k] / totals.kcal >= 0.1;
+    });
     function rows(keys) {
       return keys.map(function (k) {
         var v = (totals[k] || 0) / divisor;
@@ -1331,7 +1338,8 @@
         } else if (ul && v > ul.value) {
           warn = k === 'sodium' ? t('over_sodium', { ul: ul.value }) : t('over_ul', { ul: ul.value, unit: UNIT[ul.unit] });
         }
-        return '<tr' + (warn ? ' class="over"' : '') + '><th scope="row">' + esc(nutrientLabel(k)) + '</th>' +
+        var mark = unlisted.indexOf(k) >= 0 ? '<sup class="unlisted" title="' + esc(t('unlisted_title')) + '">*</sup>' : '';
+        return '<tr' + (warn ? ' class="over"' : '') + '><th scope="row">' + esc(nutrientLabel(k)) + mark + '</th>' +
           '<td class="num">' + fmt(v) + ' ' + esc(nutrientUnit(k)) + '</td>' +
           '<td class="num">' + (pct == null ? '—' : Math.round(pct) + '%') + '</td>' +
           '<td class="barcell"><div class="bar"><span style="width:' +
@@ -1352,6 +1360,9 @@
             (showKcal() ? '' : '_nokcal'), { n: totals.partialCount, kcal: Math.round(totals.partialKcal) })) + '</p></div>'
         : '') +
       '<div class="dri-grid">' + table('Vitamins', VITAMINS) + table('Minerals', MINERALS) + '</div>' +
+      (unlisted.length ? '<p class="hint">' + esc(t('unlisted_note', { list: unlisted.map(function (k) {
+        return lowerFirst(nutrientLabel(k));
+      }).join(', ') })) + '</p>' : '') +
       '<p class="hint">' + esc(t('ul_food_note')) + '</p>';
   }
 
@@ -1824,21 +1835,24 @@
 
   function photoMatches(item) {
     var queries = [];
-    function addQ(q, bonus, whole) {
+    function addQ(q, bonus, single) {
       q = q.trim().toLowerCase();
       if (q.length >= 3 && !queries.some(function (x) { return x.q === q; })) {
         queries.push({
-          q: q, bonus: bonus,
-          // Single words must match a whole word: "bread" is not breadfruit.
-          re: whole ? new RegExp('(^|[^a-z])' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-z])') : null
+          q: q, bonus: bonus, single: !!single,
+          // Whole words only, plurals allowed: "bread" is not breadfruit, and
+          // "fried egg" is not fried eggplant.
+          re: new RegExp('(^|[^a-z])' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(e?s)?($|[^a-z])')
         });
       }
     }
     addQ(item.name, 10);
     var main = mainName(item.name);
     addQ(main, 5);
-    // "Raita/Yogurt dip" is two guesses at one thing: try each.
-    main.split('/').forEach(function (alt) { addQ(alt, 5); });
+    // "Raita/Yogurt dip" and "cooking oil or butter" are two guesses at one
+    // thing: try each.
+    var alts = main.split(/\s*\/\s*|\s+or\s+/);
+    alts.forEach(function (alt) { addQ(alt, 5); });
     // A one-word search must match a whole word: "dal" is not "dalia" (bulgur).
     addQ(item.search || '', 0, !/\s/.test((item.search || '').trim()));
     // Single words are a last resort, and only the word a name is about can
@@ -1846,24 +1860,28 @@
     // finds black-eyed peas); in "french fries" it is "fries", not "french"
     // (dry french beans); in "malai kofta" it is "kofta", not "malai" (cream).
     // Cooking words never stand alone: "fried" finds a fried egg.
-    main.split('/').concat([item.search || '']).forEach(function (phrase) {
+    alts.concat([item.search || '']).forEach(function (phrase) {
       var h = headWord(phrase);
       if (h) addQ(h, -15, true);
     });
 
     var COOKED = /\b(cooked|boiled|baked|fried|scrambled|roasted|porridge)\b/;
+    var itemWords = wordsOf(item.name + ' ' + (item.search || ''));
+    var itemText = ' ' + itemWords.join(' ') + ' ';
+    var mine = Prefs.get('cuisines') || [];
     return FOODS.map(function (f) {
-      // Foods outside the person's dietary settings are never offered.
-      if (Prefs.excludedReason(f)) return null;
+      // Foods outside the person's dietary settings, and spices no table
+      // has figures for, are never offered.
+      if (f.nodata || Prefs.excludedReason(f)) return null;
       var hay = haystack(f), best = -Infinity;
       queries.forEach(function (x) {
-        if (x.re ? x.re.test(hay) : hay.indexOf(x.q) >= 0) {
+        if (x.re.test(hay)) {
           var r = relevance(f, x.q);
           // A whole-word query should not earn relevance's prefix score.
-          if (x.re && r === 90 && !x.re.test(f.name.toLowerCase())) r = 30;
+          if (r === 90 && !x.re.test(f.name.toLowerCase())) r = 30;
           // Same main word, same kind of food: "jeera rice" is rice, and
           // "White rice" is about rice where "Rice noodles" is about noodles.
-          if (x.re) {
+          if (x.single) {
             if (f._head == null) f._head = headWord(f.name);
             if (f._head === x.q) r += 15;
           }
@@ -1871,15 +1889,63 @@
         }
       });
       if (best === -Infinity) return null;
-      var isCooked = (f.tags || []).indexOf('cooked') >= 0 || COOKED.test(f.name.toLowerCase());
+      var lname = f.name.toLowerCase();
+      var isCooked = (f.tags || []).indexOf('cooked') >= 0 || COOKED.test(lname);
       if (item.cooked && isCooked) best += 15;
       if (!item.cooked && isCooked) best -= 10;
-      if (NOT_EATEN_AS_IS.test(f.name.toLowerCase())) best -= 10;
+      if (item.cooked && /\braw\b/.test(lname) && !/\braw\b/.test(itemText)) best -= 15;
+      if (NOT_EATEN_AS_IS.test(lname)) best -= 10;
+      // Words the two names share, and words only the food has. A food that
+      // brings a meat or fish the item never mentioned is a different dish:
+      // "Biryani, chicken" for vegetable biryani, "Kofta, lamb" for malai
+      // kofta, tuna nigiri for salmon nigiri.
+      // One of the food's other names is exactly what the item is called
+      // ("black pudding" is blood sausage, "spaghetti" is pasta): agreement.
+      var aliasHit = (f.aka || []).some(function (a) {
+        a = a.toLowerCase();
+        return alts.indexOf(a) >= 0 || a === main;
+      });
+      if (aliasHit) best += 12;
+      else {
+        var fw = f._words || (f._words = wordsOf(f.name));
+        var shared = 0, extra = 0;
+        fw.forEach(function (w) {
+          if (itemText.indexOf(' ' + w + ' ') >= 0) shared++;
+          else if (PROTEIN_WORD.test(w)) extra += 25;
+          else if (!FILLER_WORD.test(w)) extra += 3;
+        });
+        itemWords.forEach(function (w) { if (PROTEIN_WORD.test(w) && fw.indexOf(w) < 0) extra += 10; });
+        best += 6 * shared - Math.min(40, extra);
+      }
+      if (ODD_FORM.test(lname) && !ODD_FORM.test(itemText)) best -= 12;
+      // The curated list first when it fits as well; chain-restaurant items
+      // last; a favourite cuisine breaks ties.
+      if (!f.more) best += 12;
+      else if (/^[A-Z'&.\s]{3,},/.test(f.name)) best -= 20;
+      if (mine.length && f.cuisines && f.cuisines.some(function (c) { return mine.indexOf(c) >= 0; })) best += 4;
       // Plain names beat long USDA-style descriptions at equal relevance.
       best -= Math.min(10, f.name.length / 8);
       return { slug: f.slug, score: best };
     }).filter(Boolean).sort(function (a, b) { return b.score - a.score; }).slice(0, 6);
   }
+
+  function proteinClash(it, f) {
+    var iw = ' ' + wordsOf(it.name + ' ' + (it.search || '')).join(' ') + ' ';
+    if ((f.aka || []).some(function (a) { return iw.indexOf(' ' + a.toLowerCase() + ' ') >= 0; })) return false;
+    return wordsOf(f.name).some(function (w) { return PROTEIN_WORD.test(w) && iw.indexOf(' ' + w + ' ') < 0; });
+  }
+
+  // Words for comparing a photo item's name with a food's: lower case,
+  // singular, at least three letters.
+  function wordsOf(text) {
+    return String(text || '').toLowerCase().replace(/\([^)]*\)/g, ' ').split(/[^a-z]+/).filter(function (w) {
+      return w.length >= 3;
+    }).map(function (w) { return w.length > 4 && /[^s]s$/.test(w) ? w.slice(0, -1) : w; })
+      .filter(function (w, i, all) { return all.indexOf(w) === i; });
+  }
+  var PROTEIN_WORD = /^(chicken|beef|lamb|mutton|pork|ham|bacon|turkey|duck|goat|veal|fish|salmon|tuna|cod|haddock|prawn|shrimp|crab|lobster|clam|mussel|squid|octopus|egg|paneer|tofu|sausage|meat|liver)$/;
+  var FILLER_WORD = /^(cooked|raw|boiled|baked|roasted|grilled|steamed|homemade|home|prepared|plain|with|and|without|from|fresh|nfs|type|style|made|added|all|average|regular|whole|retail|takeaway|restaurant|the|for|not|fat|salt|unsalted|reheated|drained|served|portion|serving|variety|varieties|includes|weighed|edible)$/;
+  var ODD_FORM = /\b(fortified|enriched|protein-fortified|reduced sodium|low sodium|reduced fat|low fat|lowfat|fat free|sugar free|diet|light|lite|dietetic|imitation|dehydrated|powder|instant|canned|frozen|kombucha|bubble|cocoa butter)\b/;
 
   // Whether the best candidate is safe to pick without asking. A search for
   // "curry" finds curry powder, and "fried bread" finds a flour: plausible
@@ -1918,8 +1984,13 @@
       // that is not also described as cooked counts as dry.
       if (it.cooked && /^(grain|legume|nut)$/.test(f.group) && DRY_FORM.test(text) &&
           !/\b(cooked|boiled|baked|roasted|fried|canned|prepared)\b/.test(text)) continue;
+      // A food that brings a meat or fish the item never named is a different
+      // dish, however well the rest matches: lamb kofta for malai kofta.
+      if (proteinClash(it, f)) continue;
       var k = f.nutrients.kcal || 0;
       if (it.kcalPer100 && k && (k / it.kcalPer100 > DENSITY_TOLERANCE || it.kcalPer100 / k > DENSITY_TOLERANCE)) continue;
+      // Nothing where the model expected something: hibiscus tea for tea with milk.
+      if (it.kcalPer100 > 10 && !k) continue;
       ok.push({ f: f, score: m[i].score, k: k });
     }
     if (!ok.length) return null;
@@ -2858,11 +2929,12 @@
     var days = Tracker.history(end, n);
     var logged = days.filter(function (d) { return d.count; });
     var target = energyTarget();
-    var sum = { partialCount: 0, partialKcal: 0, supp: {} };
+    var sum = { partialCount: 0, partialKcal: 0, supp: {}, unknown: {} };
     Tracker.TRACKED.forEach(function (k) { sum[k] = 0; });
     logged.forEach(function (d) {
       Tracker.TRACKED.forEach(function (k) { sum[k] += d[k] || 0; });
       Object.keys(d.supp || {}).forEach(function (k) { sum.supp[k] = (sum.supp[k] || 0) + d.supp[k]; });
+      Object.keys(d.unknown || {}).forEach(function (k) { sum.unknown[k] = (sum.unknown[k] || 0) + d.unknown[k]; });
       sum.partialCount += d.partialCount;
       sum.partialKcal += d.partialKcal;
     });
@@ -2969,11 +3041,12 @@
     var days = Tracker.history(end, n);
     var logged = days.filter(function (d) { return d.count; });
     var prof = Profile.get(), ref = referenceSet(), target = energyTarget();
-    var sum = { partialCount: 0, partialKcal: 0, supp: {} };
+    var sum = { partialCount: 0, partialKcal: 0, supp: {}, unknown: {} };
     Tracker.TRACKED.forEach(function (k) { sum[k] = 0; });
     logged.forEach(function (d) {
       Tracker.TRACKED.forEach(function (k) { sum[k] += d[k] || 0; });
       Object.keys(d.supp || {}).forEach(function (k) { sum.supp[k] = (sum.supp[k] || 0) + d.supp[k]; });
+      Object.keys(d.unknown || {}).forEach(function (k) { sum.unknown[k] = (sum.unknown[k] || 0) + d.unknown[k]; });
       sum.partialCount += d.partialCount; sum.partialKcal += d.partialKcal;
     });
     var q = { measured: 0, photo: 0, partial: 0 }, total = 0;

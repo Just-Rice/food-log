@@ -232,6 +232,9 @@
     // A supplement lists what it contains; what it does not list it does not
     // contain, so nothing is left uncounted.
     if (e.source === 'supplement') return true;
+    // A pinch of a spice no table has figures for leaves nothing that matters
+    // uncounted.
+    if (e.nodata && e.grams <= 10) return true;
     // A recipe's figures are summed from its USDA ingredients, so it carries
     // the full profile even though no single food record stands behind it.
     return !e.fixed && (!!e.slug || e.source === 'recipe') && e.per100 && e.per100.iron != null;
@@ -290,7 +293,10 @@
   }
 
   function totals(date) {
-    var t = { kcalLow: 0, kcalHigh: 0, count: 0, estKcal: 0, partialKcal: 0, partialCount: 0, supp: {} };
+    // unknown[k]: energy from entries that carry the full profile except k --
+    // a dish from a table that does not measure it (FNDDS has no manganese).
+    var t = { kcalLow: 0, kcalHigh: 0, count: 0, estKcal: 0, partialKcal: 0, partialCount: 0, supp: {},
+              unknown: {}, unknownCount: {} };
     TRACKED.forEach(function (k) { t[k] = 0; });
     day(date).forEach(function (e) {
       var sp = suppOf(e);
@@ -303,6 +309,14 @@
       t.count++;
       if (isEstimate(e)) t.estKcal += n.kcal;
       if (!isComplete(e)) { t.partialKcal += n.kcal; t.partialCount++; }
+      else if (e.per100 && !e.fixed && !e.nodata) {
+        MICROS.forEach(function (k) {
+          if (e.per100[k] == null) {
+            t.unknown[k] = (t.unknown[k] || 0) + n.kcal;
+            t.unknownCount[k] = (t.unknownCount[k] || 0) + 1;
+          }
+        });
+      }
     });
     return t;
   }
@@ -367,6 +381,7 @@
         e.slug = item.food.slug;
         e.name = item.food.name;
         e.per100 = per100From(item.food);
+        if (item.food.nodata) e.nodata = true;
       } else {
         e.name = String(item.name || '').slice(0, 120) || 'Food';
         e.per100 = {};
