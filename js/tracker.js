@@ -406,6 +406,9 @@
       if (item.brand) e.brand = String(item.brand).slice(0, 60);
       if (item.photoId) e.photoId = String(item.photoId).slice(0, 40);
       if (item.recipeId) e.recipeId = String(item.recipeId).slice(0, 40);
+      // A spice added with a dish ("dal" brings turmeric and cumin): it folds
+      // under the dish, and goes wherever the dish goes.
+      if (item.spiceOf) e.spiceOf = String(item.spiceOf).slice(0, 40);
       // A recipe's ingredients, for counting the different plants eaten.
       if (Array.isArray(item.slugs)) {
         e.slugs = item.slugs.filter(function (x) { return typeof x === 'string'; }).slice(0, 40)
@@ -486,23 +489,28 @@
     var e = find(date, id);
     if (!e || !isDate(toDate)) return null;
     if (MEALS.indexOf(toMeal) < 0) toMeal = e.meal;
+    var kids = (data.days[date] || []).filter(function (x) { return x.spiceOf === id; });
     if (toDate === date) {
       if (toMeal === e.meal) return e;
-      e.meal = toMeal;
-      e.updatedAt = bump(e);
+      [e].concat(kids).forEach(function (x) { x.meal = toMeal; x.updatedAt = bump(x); });
       persist([date]);
       return e;
     }
     var now = Math.max(Date.now(), stampOf(e) + 1);
-    var c = copyOf(e, toMeal, now);
-    c.at = e.at || now;   // still eaten when it was
-    if (e.photoId) { c.photoId = e.photoId; if (e.plateSet) c.plateSet = true; }
-    bury(date, e, now);
-    data.days[date] = data.days[date].filter(function (x) { return x.id !== id; });
+    var dest = data.days[toDate] = data.days[toDate] || [];
+    var moved = null;
+    [e].concat(kids).forEach(function (x) {
+      var c = copyOf(x, toMeal, now);
+      c.at = x.at || now;   // still eaten when it was
+      if (x.photoId) { c.photoId = x.photoId; if (x.plateSet) c.plateSet = true; }
+      if (x === e) moved = c; else c.spiceOf = moved.id;
+      bury(date, x, now);
+      dest.push(c);
+    });
+    data.days[date] = data.days[date].filter(function (x) { return x.id !== id && x.spiceOf !== id; });
     if (!data.days[date].length) delete data.days[date];
-    (data.days[toDate] = data.days[toDate] || []).push(c);
     persist([date, toDate]);
-    return c;
+    return moved;
   }
 
   /**
@@ -515,9 +523,15 @@
     if (!src.length) return 0;
     var now = Date.now();
     var list = data.days[toDate] = data.days[toDate] || [];
-    src.forEach(function (e, i) { list.push(copyOf(e, toMeal || meal, now + i)); });
+    var ids = {};
+    var copies = src.map(function (e, i) { var c = copyOf(e, toMeal || meal, now + i); ids[e.id] = c.id; return c; });
+    // Spices that came with a dish stay with its copy.
+    copies.forEach(function (c, i) {
+      if (src[i].spiceOf) { if (ids[src[i].spiceOf]) c.spiceOf = ids[src[i].spiceOf]; else delete c.spiceOf; }
+      list.push(c);
+    });
     persist([toDate]);
-    return src.length;
+    return src.filter(function (e) { return !e.spiceOf || !ids[e.spiceOf]; }).length;
   }
 
   /**
@@ -574,7 +588,8 @@
     if (!list) return;
     var now = Date.now();
     data.days[date] = list.filter(function (e) {
-      if (e.id !== id) return true;
+      // The dish and the spices that came with it.
+      if (e.id !== id && e.spiceOf !== id) return true;
       bury(date, e, now);
       return false;
     });

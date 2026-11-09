@@ -176,5 +176,24 @@ const D1 = '2026-11-06', D2 = '2026-11-07';
   check(sp.nodata && A.T.isComplete(sp) && A.T.totals(D1).partialCount === 0, 'a pinch of a spice with no figures leaves nothing uncounted');
 }
 
+// ---- spices that came with a dish ----
+{
+  const A = device();
+  const dal = A.T.add(D1, { food: food('dal', 120), grams: 200, meal: 'lunch' });
+  const cu = A.T.add(D1, { food: food('cumin', 375), grams: 0.5, meal: 'lunch', source: 'spice', spiceOf: dal.id });
+  A.T.add(D1, { food: food('turmeric', 312), grams: 0.4, meal: 'lunch', source: 'spice', spiceOf: dal.id });
+  check(cu.spiceOf === dal.id && cu.source === 'spice', 'a spice entry knows its dish');
+  check(A.T.copyMeal(D1, 'lunch', D2, 'dinner') === 1, 'copying the meal counts the dish once');
+  const d2 = A.T.day(D2), dal2 = d2.find((e) => e.name === 'dal');
+  check(d2.length === 3 && d2.filter((e) => e.spiceOf === dal2.id).length === 2, 'the copy\'s spices point at the copied dish');
+  const moved = A.T.move(D2, dal2.id, D1, 'snack');
+  const d1 = A.T.day(D1);
+  check(A.T.day(D2).length === 0 && d1.filter((e) => e.spiceOf === moved.id && e.meal === 'snack').length === 2,
+    'moving a dish to another day takes its spices, to the new meal');
+  A.T.remove(D1, dal.id);
+  check(!A.T.day(D1).some((e) => e.id === dal.id || e.spiceOf === dal.id) && A.T.day(D1).length === 3,
+    'deleting a dish deletes its spices, and nothing else');
+}
+
 console.log(failures ? failures + ' FAILED' : 'ALL PASSED');
 process.exit(failures ? 1 : 0);

@@ -58,7 +58,8 @@ await runSuite('describe', async ({ base: BASE, browser: b, check }) => {
   check(c2.model === 'gemini-3.8-flash' && /two rotis/.test(c2.prompt) && c2.image === false, 'stronger model re-reads the description');
   await p.click('#photoAdd');
   await p.waitForSelector('.log-list');
-  check((await p.evaluate(() => window.Tracker.day(window.Tracker.today()).length)) === 3, 'three items logged from the description');
+  check((await p.evaluate(() => window.Tracker.day(window.Tracker.today()).filter((e) => e.source !== 'spice').length)) === 3,
+    'three items logged from the description (plus any spices they bring)');
   await go('#/today'); await go('#/snap'); await p.waitForSelector('#describeText');
   const hasSpeech = await p.evaluate(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition));
   check(hasSpeech === !!(await p.$('#micBtn')), 'mic button shown exactly when speech recognition exists (here: ' + hasSpeech + ')');

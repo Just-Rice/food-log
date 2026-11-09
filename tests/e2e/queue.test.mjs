@@ -70,7 +70,7 @@ await runSuite('queue', async ({ base: BASE, browser: b, check }) => {
   await p.click('#photoAdd'); await p.waitForSelector('.log-list');
   q = await queue();
   check(q.length === 1 && q[0].kind === 'text', 'logging it removes it from the queue');
-  check((await p.evaluate(() => window.Tracker.day(window.Tracker.today()).length)) === 2, 'its items are logged');
+  check((await p.evaluate(() => window.Tracker.day(window.Tracker.today()).filter((e) => e.source !== 'spice').length)) === 2, 'its items are logged');
   await p.click('[data-q-open]'); await p.waitForSelector('.photo-items li');
   await p.click('#photoDiscard');
   check((await queue()).length === 0, 'discarding removes it too');

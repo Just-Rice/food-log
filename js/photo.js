@@ -154,7 +154,9 @@
         ? 'A photo has no depth, so make the range honest rather than narrow.'
         : 'Where the person gave no amount, make the range wide.'),
       '- "kcal_per_100g": typical energy density of this item as served.',
-      '- "confidence": "high", "medium" or "low", for how sure you are what it is.'
+      '- "confidence": "high", "medium" or "low", for how sure you are what it is.',
+      '- "spices": for a cooked dish, the spices and dried herbs it most likely contains, as plain ' +
+        'names (e.g. ["turmeric", "cumin", "coriander"]); an empty list for foods with none.'
     ];
   }
 
@@ -178,7 +180,7 @@
     return 'Reply with compact JSON only, on a single line with no spaces between ' +
       'fields and no code fence, in this shape: {"items": [{"name": "...", "search": ' +
       '"...", "cooked": true, "grams": 0, "grams_low": 0, "grams_high": 0, ' +
-      '"kcal_per_100g": 0, "confidence": "medium"}], ' +
+      '"kcal_per_100g": 0, "confidence": "medium", "spices": []}], ' +
       (fromPhoto ? '"plate_cm": 26, "scale": "plate", ' : '') + '"notes": "..."}';
   }
 
@@ -337,7 +339,10 @@
         cooked: it.cooked !== false,
         grams: Math.round(grams), gramsLow: Math.round(lo), gramsHigh: Math.round(hi),
         kcalPer100: num(it.kcal_per_100g, 1, 900),
-        confidence: ['high', 'medium', 'low'].indexOf(conf) >= 0 ? conf : 'medium'
+        confidence: ['high', 'medium', 'low'].indexOf(conf) >= 0 ? conf : 'medium',
+        spices: (Array.isArray(it.spices) ? it.spices : []).map(function (x) {
+          return String(x || '').trim().toLowerCase().slice(0, 30);
+        }).filter(function (x, j, arr) { return x && arr.indexOf(x) === j; }).slice(0, 8)
       };
     }).filter(Boolean);
     return {

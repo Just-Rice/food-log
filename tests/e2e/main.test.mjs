@@ -133,7 +133,7 @@ await runSuite('main', async ({ base: BASE, browser: b, devices, check }) => {
   await p.goto(BASE + '#/settings'); await p.waitForSelector('#exportBtn');
   const [dl] = await Promise.all([p.waitForEvent('download'), p.click('#exportBtn')]);
   const exported = JSON.parse(fs.readFileSync(await dl.path(), 'utf8'));
-  check(Object.values(exported.days).flat().length === 6, 'export holds 6 entries');
+  check(Object.values(exported.days).flat().filter((e) => e.source !== 'spice').length === 6, 'export holds 6 entries (and their spices)');
   check((await p.textContent('#main')).includes('test••••••••3456'), 'key shown masked');
 
   // 7. Legacy migration in a fresh context

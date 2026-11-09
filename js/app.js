@@ -97,6 +97,9 @@
     learnt_none: 'Nothing yet.', learnt_match: 'matched as {food}', learnt_model: 'kept as the reader’s own estimate',
     learnt_portion: 'your portions ≈ {pct}% of the reader’s guess ({n} measured)',
     forget: 'Forget', forget_all: 'Forget everything',
+    dish_spices_title: 'Spices in dishes', dish_spices_label: 'Add a dish’s usual spices to the log',
+    dish_spices_lede: 'When you log a dish — from a photo, a description or search — the spices it usually contains are added in small amounts, unless they are already in that day’s log, so they count toward your vitamins and the plants you eat.',
+    with_spices: 'with {list}', spices_n: '+ {n} spices', spices_one: '+ 1 spice', spice_tag: 'spice',
     cuisines_title: 'Favourite cuisines',
     cuisines_lede: 'The cuisines you eat most. Their foods come first in search, photos and descriptions are read with them in mind ("dal", not "lentil soup"), and their dishes get their usual spices. Shared with Food is Medicine.',
     edit_entry: 'Edit', rename: 'Rename', move_to: 'Move to', move: 'Move', name_label: 'Name',
@@ -582,7 +585,7 @@
   // State
   // ======================================================================
   var logState = { date: null, pick: null, pickGrams: null, meal: null, measuring: null, notice: '', scan: null, savingMeal: null,
-                   editing: null, copying: null };
+                   editing: null, copying: null, spicesOpen: null };
   var snap = { status: null, hint: '' };
   var histState = { days: 7 };
 
@@ -668,8 +671,11 @@
   /** Log every item of a saved meal, as fresh entries. */
   function logSavedMeal(m, date, meal) {
     m.items.forEach(function (it) {
+      // A spice that came with a dish: not if that day already has it.
+      if (it.source === 'spice' && it.slug && Tracker.day(date).some(function (e) { return e.slug === it.slug; })) return;
       if (it.fixed) Tracker.add(date, { name: it.name, fixed: it.fixed, meal: meal });
-      else if (it.slug && FOOD_BY_SLUG[it.slug]) Tracker.add(date, { food: FOOD_BY_SLUG[it.slug], grams: it.grams, meal: meal });
+      else if (it.slug && FOOD_BY_SLUG[it.slug]) Tracker.add(date, { food: FOOD_BY_SLUG[it.slug], grams: it.grams, meal: meal,
+                                                                    source: it.source === 'spice' ? 'spice' : undefined });
       else Tracker.add(date, { name: it.name, per100: it.per100, grams: it.grams, meal: meal,
                                source: it.source === 'barcode' ? 'barcode' : 'food', barcode: it.barcode, brand: it.brand });
     });
@@ -1369,15 +1375,22 @@
   }
 
   function mealBlock(meal, entries, date) {
-    var list = entries.filter(function (e) { return e.meal === meal && !isSupp(e); });
+    var all = entries.filter(function (e) { return e.meal === meal && !isSupp(e); });
+    // Spices that came with a dish fold under it.
+    var ids = {}, kids = {};
+    all.forEach(function (e) { ids[e.id] = true; });
+    var list = all.filter(function (e) {
+      if (e.spiceOf && ids[e.spiceOf]) { (kids[e.spiceOf] = kids[e.spiceOf] || []).push(e); return false; }
+      return true;
+    });
     if (!list.length) return '';
     var lo = 0, hi = 0;
-    list.forEach(function (e) { var r = Tracker.kcalRange(e); lo += r[0]; hi += r[1]; });
+    all.forEach(function (e) { var r = Tracker.kcalRange(e); lo += r[0]; hi += r[1]; });
     var saving = logState.savingMeal === meal, copying = logState.copying === meal;
     return '<div class="card pad log-meal">' +
       '<div class="log-meal-head"><h3>' + esc(mealLabel(meal)) + '</h3>' +
       kc('<span class="dim">' + esc(kcalText(lo, hi)) + ' kcal</span>') + '</div>' +
-      '<ul class="log-list">' + list.map(function (e) { return entryRow(e, date); }).join('') +
+      '<ul class="log-list">' + list.map(function (e) { return entryRow(e, kids[e.id]); }).join('') +
       '</ul>' +
       (window.Library
         ? (saving
@@ -1425,7 +1438,28 @@
       '<button class="btn small" type="button" data-move="' + esc(e.id) + '">' + esc(t('move')) + '</button></div></div>';
   }
 
-  function entryRow(e) {
+  /** The spices folded under a dish: one line, opened into a small list. */
+  function spiceLines(e, kids) {
+    if (!kids || !kids.length) return '';
+    var open = logState.spicesOpen === e.id;
+    var names = kids.map(function (k) { return lowerFirst(k.name.replace(/\s*\(.*\)$/, '').replace(/,.*$/, '')); });
+    return '<span class="l-sub spice-line"><button class="linklike" type="button" data-spices="' + esc(e.id) +
+      '" aria-expanded="' + open + '">' + esc(t(kids.length === 1 ? 'spices_one' : 'spices_n', { n: kids.length })) +
+      '</button>: ' + esc(names.join(', ')) + '</span>';
+  }
+
+  function spiceList(e, kids) {
+    if (!kids || !kids.length || logState.spicesOpen !== e.id) return '';
+    return '<div class="l-spices"><ul class="spice-list">' + kids.map(function (k) {
+        var kr = Tracker.kcalRange(k);
+        return '<li><span>' + esc(k.name) + '</span><span class="dim">' + fmt(k.grams) + ' g' +
+          kc(' · ' + esc(kcalText(kr[0], kr[1])) + ' kcal') + '</span>' +
+          '<button class="chip" type="button" data-del="' + esc(k.id) + '" aria-label="' + esc(t('remove') + ' ' + k.name) +
+          '">&times;</button></li>';
+      }).join('') + '</ul></div>';
+  }
+
+  function entryRow(e, kids) {
     var n = Tracker.nutrientsOf(e);
     var r = Tracker.kcalRange(e);
     var food = e.slug && FOOD_BY_SLUG[e.slug];
@@ -1445,7 +1479,9 @@
       (e.source === 'manual' ? ' <span class="tag">' + esc(t('typed_in')) + '</span>' : '') +
       (e.source === 'barcode' ? ' <span class="tag">' + esc(t('from_label')) + '</span>' : '') +
       (e.source === 'recipe' ? ' <span class="tag">' + esc(t('recipe_tag')) + '</span>' : '') +
+      (e.source === 'spice' ? ' <span class="tag">' + esc(t('spice_tag')) + '</span>' : '') +
       sub.map(function (s) { return '<span class="l-sub">' + esc(s) + '</span>'; }).join('') +
+      spiceLines(e, kids) +
       // An unmatched photo item has only the model's energy guess; showing
       // "0 g protein" for it would be a claim, not a blank.
       (e.per100 && !e.slug && e.source !== 'barcode' && e.source !== 'recipe'
@@ -1463,6 +1499,7 @@
       (logState.editing === e.id) + '" aria-label="' + esc(t('edit_entry') + ' ' + e.name) + '">' + esc(t('edit_entry')) + '</button>' +
       '<button class="chip" type="button" data-del="' + esc(e.id) + '" aria-label="' +
       esc(t('remove') + ' ' + e.name) + '">&times;</button>' +
+      spiceList(e, kids) +
       (logState.editing === e.id ? entryTools(e) : '') +
       (!e.fixed && (est || open)
         ? '<div class="l-measure">' + measurePanel('entry', e.id, food, e.grams, open) +
@@ -1650,7 +1687,8 @@
         var g = Number(pg.value);
         if (!food || !(g > 0)) return;
         rememberMeal('pickMeal');
-        Tracker.add(logState.date, { food: food, grams: g, meal: logState.meal });
+        var added = Tracker.add(logState.date, { food: food, grams: g, meal: logState.meal });
+        if (added && food.spices && food.spices.length) logSpices(logState.date, added, dishSpices(food.name, food, g));
         logState.pick = null;
         logState.pickGrams = null;
         render();
@@ -1718,6 +1756,12 @@
     });
     if (window.Library) bindTakeSupp(logState.date);
     bindQueue();
+    main.querySelectorAll('[data-spices]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        logState.spicesOpen = logState.spicesOpen === b.dataset.spices ? null : b.dataset.spices;
+        render();
+      });
+    });
     main.querySelectorAll('[data-edit-entry]').forEach(function (b) {
       b.addEventListener('click', function () {
         logState.editing = logState.editing === b.dataset.editEntry ? null : b.dataset.editEntry;
@@ -1869,6 +1913,9 @@
 
     var COOKED = /\b(cooked|boiled|baked|fried|scrambled|roasted|porridge)\b/;
     var itemWords = wordsOf(item.name + ' ' + (item.search || ''));
+    // A dish ("chana masala", "chicken curry") ranks records of that dish
+    // above its main ingredient, which autoMatch would refuse anyway.
+    var dishWord = DISH.exec(main);
     var itemText = ' ' + itemWords.join(' ') + ' ';
     var mine = Prefs.get('cuisines') || [];
     return FOODS.map(function (f) {
@@ -1925,10 +1972,27 @@
       if (!f.more) best += 12;
       else if (/^[A-Z'&.\s]{3,},/.test(f.name)) best -= 20;
       if (mine.length && f.cuisines && f.cuisines.some(function (c) { return mine.indexOf(c) >= 0; })) best += 4;
+      if (dishWord) best += hay.indexOf(dishWord[1]) >= 0 ? 25 : -10;
       // Plain names beat long USDA-style descriptions at equal relevance.
       best -= Math.min(10, f.name.length / 8);
       return { slug: f.slug, score: best };
     }).filter(Boolean).sort(function (a, b) { return b.score - a.score; }).slice(0, 6);
+  }
+
+  /**
+   * The item names a meat, fish, paneer, tofu or egg the food does not have:
+   * green bean masala is not paneer butter masala. Toppings of a burger, a
+   * sandwich, a pizza or a taco vary, so those are let through.
+   */
+  function proteinMissing(it, f, dish) {
+    if (dish && /burger|sandwich|wrap|pizza|taco|burrito|roll/.test(dish[1])) return false;
+    var have = ' ' + wordsOf(f.name + ' ' + (f.usda || '') + ' ' + (f.aka || []).join(' ')).join(' ') + ' ';
+    return wordsOf(it.name).some(function (w) { return PROTEIN_WORD.test(w) && have.indexOf(' ' + w + ' ') < 0; });
+  }
+
+  function sameDishName(it, f) {
+    var main = mainName(it.name);
+    return (f.aka || []).some(function (a) { return a.toLowerCase() === main; });
   }
 
   function proteinClash(it, f) {
@@ -1977,7 +2041,9 @@
       var text = (f.name + ' ' + (f.usda || '')).toLowerCase();
       // A dish only matches a food that is itself that dish by name -- not by
       // an alias: ground beef is also called "hamburger", a burger is not.
-      if (dish && text.indexOf(dish[1]) < 0) continue;
+      // The extended list's dish names (build/dish_aliases.txt) are the same
+      // dish, so an exact one counts: "chana masala" is CoFID's chick pea curry.
+      if (dish && text.indexOf(dish[1]) < 0 && !(f.more && sameDishName(it, f))) continue;
       // Herbs are seasoning, not a portion -- including those filed as
       // vegetables, like epazote ("Mexican tea", once matched to a cup of tea).
       var herb = f.group === 'herb' || (f.tags || []).indexOf('herb') >= 0;
@@ -1988,7 +2054,7 @@
           !/\b(cooked|boiled|baked|roasted|fried|canned|prepared)\b/.test(text)) continue;
       // A food that brings a meat or fish the item never named is a different
       // dish, however well the rest matches: lamb kofta for malai kofta.
-      if (proteinClash(it, f)) continue;
+      if (proteinClash(it, f) || proteinMissing(it, f, dish)) continue;
       var k = f.nutrients.kcal || 0;
       if (it.kcalPer100 && k && (k / it.kcalPer100 > DENSITY_TOLERANCE || it.kcalPer100 / k > DENSITY_TOLERANCE)) continue;
       // Nothing where the model expected something: hibiscus tea for tea with milk.
@@ -2033,7 +2099,7 @@
         modelGrams: it.grams, autoSlug: auto, taught: taught,
         usual: k !== 1 ? { factor: k, n: mem.n } : null,
         candidates: cands, slug: slug,
-        conflict: it.conflict || '', allergens: it.allergens || [],
+        conflict: it.conflict || '', allergens: it.allergens || [], spices: it.spices || [],
         include: true, measured: false, measure: ''
       };
     });
@@ -2047,6 +2113,121 @@
   // ---- dietary settings (shared with Food is Medicine) ---------------------
 
   /** The person's dietary settings, in the shape Photo.buildPrompt takes. */
+  // ---- a dish's spices ----------------------------------------------------------
+  // A dish brings the spices it usually contains, in small amounts, unless
+  // they are already in that day's log.
+  var DISH_SPICES = 'foodlog.dishSpices';
+  function dishSpicesOn() {
+    try { return localStorage.getItem(DISH_SPICES) !== '0'; } catch (e) { return true; }
+  }
+
+  // Names a photo reader or a cook uses -> the spice in the food list.
+  var SPICE_NAMES = {
+    'coriander': 'coriander seed', 'coriander powder': 'coriander seed', 'ground coriander': 'coriander seed',
+    'coriander seeds': 'coriander seed', 'dhania': 'coriander seed', 'dhania powder': 'coriander seed',
+    'fresh coriander': 'cilantro', 'coriander leaves': 'cilantro', 'cilantro': 'cilantro',
+    'chilli': 'chilipowder', 'chili': 'chilipowder', 'chilli powder': 'chilipowder', 'chili powder': 'chilipowder',
+    'red chilli': 'chilipowder', 'red chili': 'chilipowder', 'red chilli powder': 'chilipowder', 'chili flakes': 'chilipowder',
+    'chilli flakes': 'chilipowder', 'red pepper flakes': 'chilipowder', 'cayenne': 'pepperredorcayenne',
+    'cayenne pepper': 'pepperredorcayenne', 'kashmiri chilli': 'paprika', 'pepper': 'blackpepper',
+    'black pepper': 'blackpepper', 'white pepper': 'pepperwhite', 'turmeric': 'turmericroot', 'haldi': 'turmericroot',
+    'cumin': 'cumin', 'cumin seeds': 'cumin', 'jeera': 'cumin', 'ground cumin': 'cumin',
+    'garam masala': 'uk-13-829', 'hing': 'uk-13-803', 'asafoetida': 'uk-13-803', 'curry leaves': 'uk-13-821',
+    'curry leaf': 'uk-13-821', 'cinnamon': 'cinnamonspice', 'cardamom': 'cardamom', 'elaichi': 'cardamom',
+    'green cardamom': 'cardamom', 'black cardamom': 'sp-blackcardamom', 'cloves': 'cloves', 'clove': 'cloves',
+    'bay leaf': 'bayleaf', 'bay leaves': 'bayleaf', 'ginger': 'gingerground', 'ground ginger': 'gingerground',
+    'garlic powder': 'garlicpowder', 'onion powder': 'onionpowder', 'oregano': 'oregano', 'basil': 'basildried',
+    'dried basil': 'basildried', 'thyme': 'thymedried', 'rosemary': 'rosemarydried', 'parsley': 'parsleydried',
+    'dill': 'dillweeddried', 'paprika': 'paprika', 'smoked paprika': 'paprika', 'nutmeg': 'nutmeg', 'mace': 'maceground',
+    'saffron': 'saffron', 'fennel': 'fennelseed', 'fennel seeds': 'fennelseed', 'saunf': 'fennelseed',
+    'mustard seeds': 'mustardseed', 'mustard seed': 'mustardseed', 'rai': 'mustardseed',
+    'fenugreek': 'fenugreekseed', 'fenugreek seeds': 'fenugreekseed', 'methi seeds': 'fenugreekseed',
+    'kasuri methi': 'sp-kasurimethi', 'dried fenugreek leaves': 'sp-kasurimethi', 'curry powder': 'currypowder',
+    'allspice': 'allspiceground', 'star anise': 'sp-staranise', 'sumac': 'sp-sumac', 'ajwain': 'sp-ajwain',
+    'carom': 'sp-ajwain', 'carom seeds': 'sp-ajwain', 'amchur': 'sp-amchur', 'amchoor': 'sp-amchur',
+    'mango powder': 'sp-amchur', 'kalonji': 'sp-kalonji', 'nigella': 'sp-kalonji', 'nigella seeds': 'sp-kalonji',
+    'sichuan pepper': 'sp-sichuanpepper', 'szechuan pepper': 'sp-sichuanpepper', 'five spice': 'sp-fivespice',
+    'five-spice': 'sp-fivespice', 'chinese five spice': 'sp-fivespice', 'gochugaru': 'sp-gochugaru',
+    'galangal': 'sp-galangal', 'lemongrass': 'lemongrass', 'kaffir lime leaves': 'sp-makrutlime',
+    'makrut lime leaves': 'sp-makrutlime', 'lime leaves': 'sp-makrutlime', 'annatto': 'sp-annatto',
+    'achiote': 'sp-annatto', "za'atar": 'sp-zaatar', 'zaatar': 'sp-zaatar', 'ras el hanout': 'sp-rasel',
+    'herbes de provence': 'sp-herbesdeprovence', 'italian seasoning': 'sp-italianseasoning',
+    'italian herbs': 'sp-italianseasoning', 'cajun seasoning': 'sp-cajunseasoning', 'chaat masala': 'sp-chaatmasala',
+    'sambar powder': 'sp-sambarpowder', 'panch phoron': 'sp-panchphoron', 'berbere': 'sp-berbere',
+    'jerk seasoning': 'sp-jerkseasoning', 'caraway': 'carawayseed', 'caraway seeds': 'carawayseed',
+    'celery seed': 'celeryseed', 'tarragon': 'tarragon', 'sage': 'sage', 'marjoram': 'marjoram',
+    'savory': 'savoryground', 'chervil': 'chervil', 'mint': 'spearmintdried', 'dried mint': 'spearmintdried',
+    'juniper': 'sp-juniper', 'juniper berries': 'sp-juniper', 'shichimi': 'sp-shichimi', 'dukkah': 'sp-dukkah'
+  };
+  var DEFAULT_SPICE_G100 = 0.15;     // grams per 100 g of dish, for a spice with no better figure
+
+  /** The food for a spice name, if it is in the list (the extended part may still be loading). */
+  function spiceFood(name) {
+    var n = String(name || '').toLowerCase().trim().replace(/\s+/g, ' ');
+    var slug = SPICE_NAMES[n] || SPICE_NAMES[n.replace(/s$/, '')];
+    if (slug && FOOD_BY_SLUG[slug]) return FOOD_BY_SLUG[slug];
+    // Otherwise a herb or spice whose name or other names say it.
+    var re = new RegExp('(^|[^a-z])' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z]|$)');
+    for (var i = 0; i < FOODS.length; i++) {
+      var f = FOODS[i];
+      if ((f.group === 'herb' || f.kind === 'spice') && (re.test(f.name.toLowerCase()) ||
+          (f.aka || []).some(function (a) { return a.toLowerCase() === n; }))) return f;
+    }
+    return null;
+  }
+
+  /**
+   * The spices a dish brings, as [{food, grams}]: what its record lists
+   * (FNDDS ingredients, or the typical spices for that dish), else what the
+   * photo reader named, else the typical spices for its name. Amounts are
+   * per 100 g of dish, scaled to `grams`.
+   */
+  function dishSpices(name, food, grams, named) {
+    if (!dishSpicesOn() || !(grams > 0)) return [];
+    var per = {}, order = [];
+    function take(list) {
+      list.forEach(function (p) {
+        if (!FOOD_BY_SLUG[p.slug] || per[p.slug] != null) return;
+        per[p.slug] = p.g;
+        order.push(p.slug);
+      });
+    }
+    if (food && food.spices && food.spices.length) take(food.spices);
+    var typical = window.FoodsMore ? FoodsMore.typicalSpices(name) : [];
+    if (named && named.length) {
+      // The reader saw the dish: its list decides which, the record or the
+      // typical recipe how much.
+      var known = {};
+      typical.forEach(function (p) { known[p.slug] = p.g; });
+      Object.keys(per).forEach(function (k) { known[k] = per[k]; });
+      per = {}; order = [];
+      named.forEach(function (nm) {
+        var f = spiceFood(nm);
+        if (!f || per[f.slug] != null) return;
+        per[f.slug] = known[f.slug] != null ? known[f.slug] : DEFAULT_SPICE_G100;
+        order.push(f.slug);
+      });
+    } else if (!order.length) take(typical);
+    return order.slice(0, 8).map(function (slug) {
+      var g = Math.min(5, Math.max(0.1, Math.round(per[slug] * grams / 100 * 10) / 10));
+      return { food: FOOD_BY_SLUG[slug], grams: g };
+    });
+  }
+
+  /**
+   * Log a dish's spices under it, skipping any already in that day's log.
+   * Returns how many were added.
+   */
+  function logSpices(date, dishEntry, spices) {
+    var n = 0;
+    spices.forEach(function (sp) {
+      var have = Tracker.day(date).some(function (e) { return e.slug === sp.food.slug; });
+      if (have) return;
+      if (Tracker.add(date, { food: sp.food, grams: sp.grams, meal: dishEntry.meal, source: 'spice', spiceOf: dishEntry.id })) n++;
+    });
+    return n;
+  }
+
   /** Labels of the favourite cuisines, for the prompts. */
   function cuisineNames() {
     return (Prefs.get('cuisines') || []).map(function (c) {
@@ -2622,6 +2803,15 @@
       '</button></div></div>';
   }
 
+  function reviewSpices(it, i, food) {
+    var sp = dishSpices(it.name, food, it.grams, it.spices);
+    if (!sp.length) return '';
+    return '<p class="hint item-spices"><label><input type="checkbox" data-pspice="' + i + '"' +
+      (it.noSpices ? '' : ' checked') + '> ' + esc(t('with_spices', { list: sp.map(function (x) {
+        return lowerFirst(x.food.name.replace(/\s*\(.*\)$/, '').replace(/,.*$/, ''));
+      }).join(', ') })) + '</label></p>';
+  }
+
   function itemRow(it, i) {
     var per100 = itemPer100(it);
     var food = it.slug && FOOD_BY_SLUG[it.slug];
@@ -2668,6 +2858,7 @@
       (it.taught && !it.rematched ? '<p class="hint">' + esc(t('taught_match')) + '</p>' : '') +
       (it.usual && !it.measured ? '<p class="hint">' + esc(t(it.usual.n === 1 ? 'usual_hint_one' : 'usual_hint', { pct: Math.round(it.usual.factor * 100), n: it.usual.n })) + '</p>' : '') +
       (it.measured && it.measure ? '<p class="hint">' + esc(t('measured') + ': ' + it.measure) + '</p>' : '') +
+      reviewSpices(it, i, food) +
       measurePanel('review', i, food, it.grams, snap.openMeasure === i) +
       '</div>' +
       '<div class="p-amt"><span class="p-g"><input type="number" min="1" max="2000" step="1" ' +
@@ -2908,7 +3099,10 @@
         if (food) base.food = food;
         else { base.name = it.name; base.per100 = { kcal: it.kcalPer100 || 0 }; }
         var e = Tracker.add(date, base);
-        if (e) added.push(e.id);
+        if (e) {
+          added.push(e.id);
+          if (!it.noSpices) logSpices(date, e, dishSpices(it.name, food, it.grams, it.spices));
+        }
       });
       var up = document.getElementById('photoUpgrade');
       if (up && up.checked && window.Queue && added.length) {
@@ -2927,6 +3121,9 @@
     });
     var upg = document.getElementById('photoUpgrade');
     if (upg) upg.addEventListener('change', function () { snap.upgrade = upg.checked; });
+    main.querySelectorAll('[data-pspice]').forEach(function (cb) {
+      cb.addEventListener('change', function () { snap.items[Number(cb.dataset.pspice)].noSpices = !cb.checked; });
+    });
   }
 
   // ======================================================================
@@ -3346,6 +3543,10 @@
       '<p class="hint">' + esc(t('hide_kcal_lede')) + '</p>' +
       '<label class="toggle-row"><input type="checkbox" id="hideKcal"' + (showKcal() ? '' : ' checked') + '> ' +
       esc(t('hide_kcal_label')) + '</label></div>' +
+      '<div class="card pad settings-block"><h2>' + esc(t('dish_spices_title')) + '</h2>' +
+      '<p class="hint">' + esc(t('dish_spices_lede')) + '</p>' +
+      '<label class="toggle-row"><input type="checkbox" id="dishSpices"' + (dishSpicesOn() ? ' checked' : '') + '> ' +
+      esc(t('dish_spices_label')) + '</label></div>' +
       learntCard() +
       installCard() + remindersCard() +
 
@@ -3384,6 +3585,11 @@
     });
     var del = document.getElementById('keyDel');
     if (del) del.addEventListener('click', function () { Gemini.setKey(''); render(); });
+    document.getElementById('dishSpices').addEventListener('change', function (ev) {
+      try {
+        if (ev.target.checked) localStorage.removeItem(DISH_SPICES); else localStorage.setItem(DISH_SPICES, '0');
+      } catch (e) { /* ignore */ }
+    });
     document.getElementById('hideKcal').addEventListener('change', function (ev) {
       try {
         if (ev.target.checked) localStorage.setItem(HIDE_KCAL, '1'); else localStorage.removeItem(HIDE_KCAL);

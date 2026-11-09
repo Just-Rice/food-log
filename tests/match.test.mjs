@@ -37,7 +37,8 @@ const FORBIDDEN = [
   [/tea with milk/i, /kombucha|hibiscus/],
   [/black pudding/i, /^uk-11-11/],
   [/salmon nigiri/i, /^uk-16-362$/],
-  [/cooking oil/i, /cocoa/]
+  [/cooking oil/i, /cocoa/],
+  [/paneer butter masala/i, /^uk-15-755$/]
 ];
 // name pattern -> slug that SHOULD still be matched (when the item appears)
 const EXPECTED = [
@@ -66,6 +67,13 @@ corpus.push({ model: 'live (Nov 2026)', photo: 'thali, vegetarian settings', tex
   { name: 'jeera rice', search: 'rice', cooked: true, grams: 150, grams_low: 120, grams_high: 190, kcal_per_100g: 150, confidence: 'high' }
 ] }) });
 EXPECTED.push([/^jeera rice$/i, /^ricewhitecooked$|^ricebrowncooked$/]);
+// A dish known by another name in the extended list: CoFID's chick pea curries.
+corpus.push({ model: 'synthetic', photo: 'dish names', text: JSON.stringify({ items: [
+  { name: 'chana masala', search: 'chickpeas', cooked: true, grams: 220, grams_low: 180, grams_high: 260, kcal_per_100g: 150, confidence: 'high' },
+  { name: 'chicken curry', search: 'chicken', cooked: true, grams: 250, grams_low: 200, grams_high: 300, kcal_per_100g: 140, confidence: 'high' }
+] }) });
+EXPECTED.push([/^chana masala$/i, /^uk-15-(641|74\d)$/]);
+EXPECTED.push([/^chicken curry$/i, /^fn-27146150$|^uk-/]);
 
 const failures = [];
 let checked = 0;
