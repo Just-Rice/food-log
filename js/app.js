@@ -3666,7 +3666,11 @@
     var add = /(?:^|&)add=([^&]+)/.exec(query);
     var g = /(?:^|&)g=(\d+)/.exec(query);
     var shared = /(?:^|&)shared=([\w-]+)/.exec(query);
-    return { name: name, arg: parts[1] || null, add: add ? decodeURIComponent(add[1]) : null,
+    // decodeURIComponent throws on a stray "%" (a link cut short), and an error here left the
+    // page blank; a slug that can't be decoded is used as it stands and simply finds no food.
+    var slug = null;
+    if (add) { try { slug = decodeURIComponent(add[1]); } catch (e) { slug = add[1]; } }
+    return { name: name, arg: parts[1] || null, add: slug,
              grams: g ? Number(g[1]) : null, shared: shared ? shared[1] : null,
              scan: /(?:^|&)scan=1/.test(query) };
   }
